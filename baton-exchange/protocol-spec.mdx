@@ -1,0 +1,490 @@
+---
+title: "Protocol Specification"
+description: "Formal specification of the Baton Exchange protocol: baton JSON schema, cxdb wire protocol, synthesis prompt, and turn encoding."
+icon: "FileCode"
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion'
+import { TypeTable } from 'fumadocs-ui/components/type-table'
+
+This page is the formal specification for the Baton Exchange protocol. It covers the baton JSON schema, the cxdb binary wire protocol, turn encoding, the synthesis prompt, and the hook I/O contracts.
+
+## Baton JSON Schema
+
+The baton is the core data structure. Every synthesized baton conforms to this schema:
+
+```json title="baton-schema.json"
+{
+  "purpose": "One-sentence north star objective",
+  "persistence": {
+    "last_session": "session-uuid",
+    "completed": ["task1", "task2"],
+    "in_progress": "current task description",
+    "next": ["next step 1", "next step 2"],
+    "files_touched": ["path/to/file.py:42"]
+  },
+  "steering": {
+    "mode": "implement|debug|refactor|review",
+    "gotchas": ["Don't do X because Y"],
+    "constraints": ["Use library Z", "Max 300 lines per file"],
+    "decisions_made": ["Chose approach A over B because C"]
+  },
+  "dependency_edges": {
+    "file.py": {"requires": "other.py", "line": 42}
+  },
+  "_meta": {
+    "project": "project-name",
+    "generated_at": "ISO-8601 timestamp",
+    "compression": "normal|ultra|fallback",
+    "cxdb_turns": 8,
+    "nlm_available": false
+  }
+}
+```
+
+### Field Definitions
+
+<TypeTable
+  type={{
+    purpose: {
+      type: 'string',
+      description: 'One-sentence north-star objective. Never lost across compactions.',
+      required: true,
+    },
+    persistence: {
+      type: 'PersistenceObject',
+      description: 'Session state: what is done, in progress, and next.',
+      required: true,
+    },
+    steering: {
+      type: 'SteeringObject',
+      description: 'Behavioral guidance: mode, gotchas, constraints, decisions.',
+      required: true,
+    },
+    dependency_edges: {
+      type: 'Record<string, DependencyEdge>',
+      description: 'Active file dependency map. Only files being modified.',
+      required: false,
+    },
+    _meta: {
+      type: 'MetaObject',
+      description: 'Synthesis metadata. Not injected into context -- used by statusline and diagnostics.',
+      required: false,
+    },
+  }}
+/>
+
+### Persistence Object
+
+<TypeTable
+  type={{
+    last_session: {
+      type: 'string',
+      description: 'UUID of the most recent Claude Code session.',
+    },
+    completed: {
+      type: 'string[]',
+      description: 'Tasks completed in prior sessions.',
+    },
+    in_progress: {
+      type: 'string',
+      description: 'Task the agent was working on when context compacted.',
+    },
+    next: {
+      type: 'string[]',
+      description: 'Prioritized queue of upcoming tasks.',
+    },
+    files_touched: {
+      type: 'string[]',
+      description: 'Active file paths, optionally with line numbers (e.g., "src/auth.py:42").',
+    },
+  }}
+/>
+
+### Steering Object
+
+<TypeTable
+  type={{
+    mode: {
+      type: '"implement" | "debug" | "refactor" | "review"',
+      description: 'Current work mode. Affects statusline badge color.',
+    },
+    gotchas: {
+      type: 'string[]',
+      description: 'Non-obvious pitfalls from prior sessions. Only real issues, not speculation.',
+    },
+    constraints: {
+      type: 'string[]',
+      description: 'Hard rules the agent must follow.',
+    },
+    decisions_made: {
+      type: 'string[]',
+      description: 'Architectural decisions with rationale. Prevents relitigating.',
+    },
+  }}
+/>
+
+### Meta Object
+
+<TypeTable
+  type={{
+    project: {
+      type: 'string',
+      description: 'Project name (from git remote or directory basename).',
+    },
+    generated_at: {
+      type: 'string',
+      description: 'ISO-8601 timestamp of baton synthesis.',
+    },
+    compression: {
+      type: '"normal" | "ultra" | "fallback"',
+      description: 'Compression mode used for synthesis.',
+    },
+    cxdb_turns: {
+      type: 'number',
+      description: 'Number of cxdb timeline turns used as synthesis input.',
+    },
+    nlm_available: {
+      type: 'boolean',
+      description: 'Whether NotebookLM knowledge was included in synthesis.',
+    },
+  }}
+/>
+
+## Token Budget
+
+The baton targets a strict token budget to minimize context overhead:
+
+| Metric | Target | Hard Limit |
+|--------|--------|------------|
+| Total output tokens | ~200-300 | 400 |
+| Gemini `max_output_tokens` | 2048 | N/A (generous ceiling) |
+| Formatted Markdown injection | ~300-500 chars | N/A |
+
+The synthesis prompt enforces terse, directive language. Prose is explicitly forbidden.
+
+## cxdb Wire Protocol
+
+The cxdb binary protocol is used for all write operations. It is a simple frame-based protocol over TCP.
+
+### Frame Format
+
+```
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                       Payload Length (u32)                     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|         Msg Type (u16)        |          Flags (u16)          |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
++                       Request ID (u64)                        +
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                        Payload (variable)                     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+Header size: 16 bytes (4 + 2 + 2 + 8).
+
+### Message Types
+
+| Code | Name | Direction | Description |
+|------|------|-----------|-------------|
+| `1` | `MSG_HELLO` | Client -> Server | Handshake with client tag |
+| `2` | `MSG_CTX_CREATE` | Client -> Server | Create new context |
+| `3` | `MSG_CTX_FORK` | Client -> Server | Fork context from existing turn (O(1)) |
+| `4` | `MSG_GET_HEAD` | Client -> Server | Get current head of a context |
+| `5` | `MSG_APPEND_TURN` | Client -> Server | Append a turn to a context |
+| `6` | `MSG_GET_LAST` | Client -> Server | Get last N turns from a context |
+| `9` | `MSG_GET_BLOB` | Client -> Server | Get a blob by hash |
+| `11` | `MSG_PUT_BLOB` | Client -> Server | Store a blob |
+| `255` | `MSG_ERROR` | Server -> Client | Error response |
+
+### Handshake (MSG_HELLO)
+
+The client sends a hello message with protocol version and client tag:
+
+```
+Payload:
+  protocol_version: u16 = 1
+  tag_length: u16
+  tag: utf-8 bytes
+  flags: u32 = 0
+
+Response:
+  session_id: u64
+```
+
+### Append Turn (MSG_APPEND_TURN)
+
+```
+Payload:
+  context_id: u64
+  parent_turn_id: u64          # 0 = use current head
+  type_id_length: u32
+  type_id: utf-8 bytes         # e.g., "com.oracle.conversation.Turn"
+  type_version: u32
+  encoding: u32                # 1 = msgpack
+  compression: u32             # 0 = none
+  uncompressed_length: u32
+  content_hash: 32 bytes       # BLAKE3 hash of payload
+  payload_length: u32
+  payload: bytes               # msgpack-encoded turn data
+  idempotency_key_length: u32
+  idempotency_key: utf-8 bytes # for safe retries
+
+Response:
+  context_id: u64
+  new_turn_id: u64
+  new_depth: u32
+  content_hash: 32 bytes
+```
+
+### Turn Payload Encoding
+
+Turn payloads are encoded as msgpack with numeric keys:
+
+```python
+turn_data = {
+    1: role,           # "user" | "assistant" | "system" | "tool"
+    2: content,        # message content (string)
+    3: timestamp_ms,   # int(time.time() * 1000)
+    4: metadata,       # optional dict with event, session_id, gotchas, etc.
+}
+raw_payload = msgpack.packb(turn_data, use_bin_type=True)
+content_hash = blake3.blake3(raw_payload).digest()
+```
+
+The type registry identifier is `com.oracle.conversation.Turn` version 1.
+
+## cxdb HTTP API
+
+The HTTP API (port 9010) is used for read operations and management.
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/healthz` | Health check. Returns `200` when operational. |
+| `GET` | `/v1/contexts?limit=20&tag=...` | List contexts with optional tag filter. |
+| `GET` | `/v1/contexts/{id}/turns?limit=64&view=typed` | Get turns with typed JSON projection. |
+| `PUT` | `/v1/registry/bundles/{bundle_id}` | Publish a type registry bundle. Returns `201` or `204`. |
+
+## Synthesis Prompt
+
+The full system prompt used for Gemini baton synthesis. This prompt is the core of the compression engine:
+
+```text title="BATON_SYSTEM_PROMPT (hypervisa/baton.py)"
+You are a context-compression engine for an AI coding agent (Claude Code).
+
+Your job: synthesize raw session history and knowledge into a BATON -- a compressed
+JSON payload that gives the agent maximum behavioral activation per token.
+
+The baton has exactly three pillars:
+1. PURPOSE -- The north-star objective. What is the agent working toward? One sentence.
+2. PERSISTENCE -- Where did the last session leave off? What's done, what's next?
+3. STEERING -- Gotchas, constraints, lessons learned. What NOT to do.
+
+Rules:
+- Output ONLY valid JSON. No markdown, no commentary.
+- Keep total output under 400 tokens.
+- Use terse, directive language. No prose.
+- dependency_edges: only include files actively being modified.
+- gotchas: only include things that actually went wrong or are non-obvious.
+- If the session history is empty, return a minimal baton with just the project name.
+```
+
+### Gemini Configuration
+
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| `model` | `gemini-3-flash-preview` | Fast, cost-effective, sufficient for compression |
+| `temperature` | `0.2` | Low creativity -- accurate compression over invention |
+| `max_output_tokens` | `2048` | Generous ceiling; prompt targets <400 |
+| `response_mime_type` | `application/json` | Guarantees structured JSON output |
+
+## Hook I/O Contracts
+
+### SessionStart Hook Input
+
+```json title="stdin (from Claude Code)"
+{
+  "session_id": "abc123-def456",
+  "cwd": "/home/user/Projects/my-project",
+  "hook_event_name": "SessionStart"
+}
+```
+
+### SessionStart Hook Output
+
+<Tabs items={['Success', 'No Project', 'API Failure']}>
+  <Tab value="Success">
+    ```json title="stdout"
+    {
+      "continue": true,
+      "additionalContext": "## Baton Relay -- Session Context\n**Purpose:** Build auth system...\n**In Progress:** Refresh token rotation\n**Gotchas:**\n  - Redis requires decode_responses=True..."
+    }
+    ```
+  </Tab>
+  <Tab value="No Project">
+    ```json title="stdout"
+    {
+      "continue": true
+    }
+    ```
+  </Tab>
+  <Tab value="API Failure">
+    ```json title="stdout"
+    {
+      "continue": true
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### PreCompact Hook Input
+
+```json title="stdin (from Claude Code)"
+{
+  "session_id": "abc123-def456",
+  "transcript_path": "~/.claude/projects/.../session.jsonl",
+  "hook_event_name": "PreCompact",
+  "trigger": "auto",
+  "custom_instructions": ""
+}
+```
+
+### PreCompact Hook Output
+
+```json title="stdout"
+{
+  "continue": true,
+  "suppressOutput": true
+}
+```
+
+The `suppressOutput: true` prevents the hook's JSON response from appearing in the transcript.
+
+## Context Injection Format
+
+The `additionalContext` field contains the baton formatted as Markdown. The formatting function in `baton_hook.py` produces this structure:
+
+```markdown
+## Baton Relay -- Session Context
+**Purpose:** Build authentication system with JWT refresh token rotation
+**In Progress:** Implementing refresh token rotation
+**Completed:** User model and migration, Login endpoint with bcrypt, JWT access token generation
+**Next Steps:** Add token revocation on logout, Rate limit login attempts, Write integration tests
+**Files:** src/auth/tokens.py, src/auth/routes.py, src/models/user.py, tests/test_auth.py
+**Mode:** implement
+**Gotchas:**
+  - Redis session store requires decode_responses=True or bytes comparison fails silently
+  - PyJWT 2.x changed encode() to return str not bytes -- don't call .decode()
+  - Refresh tokens must be single-use: rotate on every refresh, revoke the old one
+  - CONSTRAINT: Use httponly cookies for refresh tokens, not localStorage
+  - CONSTRAINT: Max 300 lines per file
+**Decisions:**
+  - Chose PyJWT over python-jose for fewer dependencies
+  - Redis for token blacklist instead of DB table (faster lookups)
+  - Asymmetric RS256 keys so services can verify without signing key
+**Dependencies:**
+  - src/auth/tokens.py -> src/config.py
+  - src/auth/routes.py -> src/auth/tokens.py
+```
+
+## Project Registry Schema
+
+The project-contexts registry at `~/.cortex/baton/project-contexts.json`:
+
+```json title="project-contexts.json"
+{
+  "projects": {
+    "my-auth-service": {
+      "context_id": 42,
+      "head_turn_id": 87,
+      "cwd": "/home/user/Projects/my-auth-service",
+      "created": "2026-02-24T10:00:00",
+      "last_session": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "updated": "2026-02-24T14:30:00"
+    }
+  }
+}
+```
+
+<TypeTable
+  type={{
+    context_id: {
+      type: 'number',
+      description: 'cxdb context ID for this project. Created on first encounter.',
+    },
+    head_turn_id: {
+      type: 'number',
+      description: 'Most recent turn ID. Updated after every append.',
+    },
+    cwd: {
+      type: 'string',
+      description: 'Working directory when the context was created.',
+    },
+    created: {
+      type: 'string',
+      description: 'ISO-8601 timestamp of context creation.',
+    },
+    last_session: {
+      type: 'string',
+      description: 'Session ID of the most recent compact event.',
+    },
+    updated: {
+      type: 'string',
+      description: 'ISO-8601 timestamp of the last registry update.',
+    },
+  }}
+/>
+
+## Learnings Database Schema
+
+The SQLite database at `~/.cortex/baton/learnings.db`:
+
+```sql title="Schema"
+CREATE TABLE learnings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project TEXT NOT NULL,
+    session_id TEXT,
+    category TEXT NOT NULL,      -- gotcha | decision | constraint | progress
+    content TEXT NOT NULL,
+    source TEXT,                  -- baton_synthesis
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(project, category, content)
+);
+
+CREATE TABLE baton_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project TEXT NOT NULL,
+    session_id TEXT,
+    baton_json TEXT NOT NULL,     -- Full baton JSON for historical reference
+    event TEXT,                   -- session_start | compact | session_end
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+```
+
+The `UNIQUE(project, category, content)` constraint ensures deduplication. `INSERT OR IGNORE` is used for all writes, making repeated learnings idempotent.
+
+## Next Steps
+
+<Cards>
+  <Card title="API Reference" href="/docs/baton-exchange/api-reference">
+    Complete Python API reference for CxdbClient, baton relay, and synthesis.
+  </Card>
+  <Card title="Architecture" href="/docs/baton-exchange/architecture">
+    Component topology and system-level data flow diagrams.
+  </Card>
+  <Card title="Configuration" href="/docs/baton-exchange/configuration">
+    Environment variables, service ports, and tuning options.
+  </Card>
+  <Card title="Core Concepts" href="/docs/baton-exchange/concepts">
+    The three-pillar model and the relay loop lifecycle.
+  </Card>
+</Cards>

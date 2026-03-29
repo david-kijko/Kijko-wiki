@@ -1,14 +1,16 @@
 {
-  "title": "Panopticon",
+  "title": "HyperVisa 3.0",
   "pages": [
     "index",
     "quickstart",
+    "---Concepts---",
     "concepts",
     "architecture",
+    "---Reference---",
     "api-reference",
     "configuration",
+    "---Operations---",
     "deployment",
-    "troubleshooting",
-    "changelog"
+    "integrations"
   ]
 }

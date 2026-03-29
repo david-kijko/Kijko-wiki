@@ -1,0 +1,258 @@
+---
+title: "Quickstart"
+description: "Get the Kijko Docs platform running locally in under 5 minutes with the Express server, React client, and SQLite database"
+icon: Rocket
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Step, Steps } from 'fumadocs-ui/components/steps'
+
+This guide gets you from a fresh clone to a running local development environment with hot module reloading, the WikiAgent chat interface, and the full dashboard.
+
+## Prerequisites
+
+| Tool | Version | Purpose |
+|---|---|---|
+| Node.js | 20+ | Runtime for Express server and Vite |
+| npm | 10+ | Package management |
+| pnpm | 9+ | Required for the `apps/` monorepo packages |
+| Docker | 24+ | Required for production deployment and Keycloak |
+| Git | 2.39+ | Repository management |
+
+<Callout type="info">
+The Express server and React client run without Docker in development. Docker is only needed for the Keycloak auth service, Swarm integration, and production deployment.
+</Callout>
+
+## Local Development Setup
+
+<Steps>
+
+### Clone and Install
+
+```bash
+git clone https://github.com/kijko-ai/Kijko_Docs.git
+cd Kijko_Docs
+npm install
+```
+
+The `npm install` step installs all dependencies for the Express server, React client, shared types, and build scripts. The monorepo `apps/` packages use pnpm separately:
+
+```bash
+pnpm install
+```
+
+### Configure Environment
+
+Copy the example environment file and fill in the minimum required values:
+
+```bash
+cp .env.example .env
+```
+
+For local development without authentication, the defaults work out of the box. The critical variables to set are:
+
+```bash
+# .env -- minimum local development config
+PORT=5000
+HOST=127.0.0.1
+NODE_ENV=development
+DATABASE_PATH=./data/data.db
+PUBLIC_BASE_URL=http://localhost:5000
+
+# LLM access (needed for WikiAgent chat to work)
+OPENAI_BASE_URL=http://127.0.0.1:4141/v1
+OPENAI_API_KEY=dummy
+
+# GitHub (needed for repo monitoring features)
+GITHUB_TOKEN=ghp_your_token_here
+GITHUB_ALLOWED_OWNER=kijko-ai
+
+# Keycloak (can use defaults for local dev without auth)
+KEYCLOAK_ISSUER_URL=http://localhost:8080/keycloak/realms/kijko-docs
+KEYCLOAK_CLIENT_ID=kijko-docs-web
+KEYCLOAK_CLIENT_SECRET=change-me
+KEYCLOAK_REALM=kijko-docs
+APP_SESSION_SECRET=local-dev-session-secret
+```
+
+<Callout type="warn">
+If `OPENAI_BASE_URL` is not reachable, the WikiAgent chat will fail to process messages, but all other features (dashboard, pages, repos, builds) work normally. The LLM proxy runs on David's local infrastructure at `:4141` (GPTAuthwrapper) routing to `:4000` (LiteLLM).
+</Callout>
+
+### Start the Development Server
+
+```bash
+npm run dev
+```
+
+This starts:
+- The Express server on `http://localhost:5000`
+- Vite HMR middleware for the React client
+- SQLite database auto-creation at the configured `DATABASE_PATH`
+- Demo data seeding (sample repos, pages, and build events)
+
+The server logs API requests with timing:
+
+```
+10:30:15 AM [express] serving on 127.0.0.1:5000
+10:30:16 AM [express] GET /api/status 200 in 3ms
+```
+
+### Verify the Setup
+
+Open `http://localhost:5000` in your browser. You should see the dashboard with:
+
+- System status showing `healthy`
+- Agent state showing `idle`
+- Demo repositories in the repo list
+- Sample wiki pages in the pages view
+
+### Try the Chat Interface
+
+Navigate to `/chat` and send a message like:
+
+```
+What documentation exists for this repository?
+```
+
+The WikiAgent will respond through the WebSocket connection with streamed tokens, showing the agent state transitioning from `idle` to `processing` and back.
+
+</Steps>
+
+## Running the Next.js Fumadocs App
+
+The Fumadocs docs reader at `apps/web/` is a separate Next.js application:
+
+```bash
+cd apps/web
+pnpm install
+pnpm dev
+```
+
+This starts the Fumadocs reader at `http://localhost:3001` with:
+- Docs reader at `/docs/[[...slug]]`
+- Wiki dashboard at `/wiki`
+- CopilotKit chat at `/chat`
+- Auto-generated sitemap at `/sitemap.xml`
+
+The app reads MDX content from `wiki-content/docs/` and renders it with the Fumadocs component system.
+
+## Running the Agent Service
+
+The autonomous docs agent is a standalone service:
+
+```bash
+cd apps/agent
+pnpm install
+pnpm dev
+```
+
+This starts the agent server at `http://localhost:4111`. Configure it to point at your local Kijko_Docs checkout:
+
+```bash
+# In apps/agent/.env or root .env
+WIKI_REPO_ROOT=/path/to/Kijko_Docs
+WIKI_CONTENT_ROOT=/path/to/Kijko_Docs/wiki-content
+WIKI_AGENT_PORT=4111
+WIKI_AGENT_MODEL=gpt-5.4
+```
+
+## Running with Docker Compose
+
+For the full production-like stack with Keycloak authentication:
+
+```bash
+# Start the core services (wikiapp + swarm + surrealdb + open_notebook)
+docker compose up -d
+
+# Start with auth profile (adds Keycloak + PostgreSQL)
+docker compose --profile auth up -d
+
+# Start with edge profile (adds Caddy reverse proxy)
+docker compose --profile auth --profile edge up -d
+```
+
+Service health checks are configured for all containers. Check status:
+
+```bash
+docker compose ps
+docker compose logs wikiapp --tail 50
+```
+
+The full stack exposes:
+
+| Service | Port | URL |
+|---|---|---|
+| WikiApp | 3001 | `http://localhost:3001` |
+| Swarm UI | 3456 | `http://localhost:3456` |
+| Swarm Server | 3008 | `http://localhost:3008` |
+| SurrealDB | 8000 | `http://localhost:8000` |
+| OpenNotebook | 8502 (UI) / 5055 (API) | `http://localhost:8502` |
+| Keycloak | 8080 (via Caddy) | `http://localhost:8080/keycloak` |
+| Caddy | 8080 | `http://localhost:8080` |
+
+## Running Tests
+
+```bash
+# Run all tests
+npm test
+
+# Run specific test suites
+npx vitest run tests/schema.test.ts
+npx vitest run tests/wiki-docs.test.ts
+npx vitest run tests/architecture.test.ts
+
+# Run with watch mode
+npx vitest watch
+
+# Run Sprint 1 parity gate (validates conductor tracks)
+bash scripts/ci/run-conductor-parity.sh
+```
+
+The test suite covers schema validation, wiki document slug resolution, architecture diagram generation, GitHub API integration, swarm proxy behavior, and WikiAgent chat handling.
+
+## Type Checking
+
+```bash
+npm run check
+```
+
+This runs TypeScript type checking across the server, client, shared, and test directories using the root `tsconfig.json`.
+
+## Building for Production
+
+```bash
+npm run build
+```
+
+The build step:
+1. Compiles the Express server with esbuild
+2. Bundles the React client with Vite
+3. Outputs to `dist/` (server) and `dist/public/` (client)
+
+## Common Issues
+
+<Accordion title="Port 5000 already in use">
+macOS Monterey+ uses port 5000 for AirPlay Receiver. Either disable it in System Settings > General > AirDrop & Handoff, or set `PORT=3000` in your `.env`.
+</Accordion>
+
+<Accordion title="SQLite native module fails to build">
+better-sqlite3 requires native compilation. Ensure you have build tools installed:
+
+```bash
+# macOS
+xcode-select --install
+
+# Ubuntu/Debian
+sudo apt-get install python3 make g++
+```
+</Accordion>
+
+<Accordion title="Keycloak connection refused">
+If running without Docker, the server logs `Unable to discover Keycloak issuer metadata`. This is expected in local development without the auth profile. The app functions normally with session-based auth falling back to a guest user.
+</Accordion>
+
+<Accordion title="WebSocket chat not connecting">
+Ensure `PUBLIC_BASE_URL` matches how you access the app in the browser. WebSocket upgrades use the same host and port. If behind a proxy, ensure it supports WebSocket upgrades.
+</Accordion>

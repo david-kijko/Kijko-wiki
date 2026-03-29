@@ -1,0 +1,204 @@
+---
+title: "Configuration"
+description: "Complete environment variable reference for all services in the Kijko Docs platform stack"
+icon: Settings
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { TypeTable } from 'fumadocs-ui/components/type-table'
+
+The Kijko Docs platform is configured entirely through environment variables. Variables are consumed by the Express server, the Next.js Fumadocs app, the autonomous agent, Keycloak, Swarm, and the Docker Compose orchestration layer. The canonical list is defined in `.env.example` at the repository root.
+
+## WikiApp (Express Server)
+
+These variables configure the main Express server process running in the `wikiapp` Docker container.
+
+### Core
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `PORT` | `5000` (dev) / `3001` (Docker) | Yes | HTTP server port |
+| `HOST` | `127.0.0.1` (dev) / `0.0.0.0` (Docker) | Yes | Bind address |
+| `NODE_ENV` | `development` | Yes | `development` enables Vite HMR; `production` serves static bundle |
+| `DATABASE_PATH` | `/app/data/data.db` | No | SQLite database file path |
+| `PUBLIC_BASE_URL` | `http://localhost:8080` | Yes | Public-facing URL (used for OIDC callback URLs and CORS) |
+
+### Authentication (Keycloak)
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `APP_SESSION_SECRET` | `change-me` | Yes (prod) | Secret for signing session cookies. Auto-generated in dev |
+| `KEYCLOAK_REALM` | `kijko-docs` | Yes | Keycloak realm name |
+| `KEYCLOAK_ISSUER_URL` | `http://localhost:8080/keycloak/realms/kijko-docs` | Yes | OIDC issuer URL for discovery |
+| `KEYCLOAK_INTERNAL_URL` | `http://keycloak:8080/keycloak` | No | Internal Keycloak URL (for container-to-container calls) |
+| `KEYCLOAK_CLIENT_ID` | `kijko-docs-web` | Yes | OIDC client ID |
+| `KEYCLOAK_CLIENT_SECRET` | `change-me` | Yes | OIDC client secret |
+| `KEYCLOAK_ADMIN_CLIENT_ID` | `kijko-docs-admin-service` | No | Service account client ID for user management |
+| `KEYCLOAK_ADMIN_CLIENT_SECRET` | `change-me` | No | Service account client secret |
+
+<Callout type="warn">
+In production, `KEYCLOAK_ISSUER_URL` must be the publicly accessible URL (e.g., `https://docs.kijko.nl/keycloak/realms/kijko-docs`) because the browser redirects to this URL during login. `KEYCLOAK_INTERNAL_URL` is used for server-to-server token exchange within the Docker network.
+</Callout>
+
+### GitHub Integration
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `GITHUB_TOKEN` | (empty) | Yes | GitHub personal access token for repository API access |
+| `GITHUB_ALLOWED_OWNER` | `kijko-ai` | Yes | Only repos owned by this GitHub org/user can be monitored |
+| `GITHUB_WEBHOOK_SECRET` | (empty) | No | HMAC secret for validating GitHub webhook signatures |
+
+### Swarm Integration
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `SWARM_INTERNAL_URL` | `http://swarm` | No | Internal URL of the Swarm UI container |
+| `SWARM_API_KEY` | (empty) | No | API key injected into proxied Swarm requests |
+
+### LLM Proxy
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `OPENAI_BASE_URL` | `http://host.docker.internal:4141/v1` | Yes | OpenAI-compatible API base URL (routes through GPTAuthwrapper) |
+| `OPENAI_API_KEY` | `dummy` | Yes | API key for the proxy (can be `dummy` for local GPTAuthwrapper) |
+
+### Notebook Integration
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `OPEN_NOTEBOOK_BASE_URL` | `http://open_notebook:5055` | No | OpenNotebook API endpoint |
+| `OPEN_NOTEBOOK_API_KEY` | (empty) | No | API key for notebook access |
+| `OPEN_NOTEBOOK_NOTEBOOK_ID` | (empty) | No | Default notebook ID for research queries |
+| `OPEN_NOTEBOOK_ENCRYPTION_KEY` | `change-me` | No | Encryption key for notebook data |
+
+### Proofshot
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `AGENT_BROWSER_ARGS` | `--no-sandbox` | No | Chromium flags for the headless browser used by proofshot |
+
+---
+
+## Agent Service
+
+The autonomous docs agent at `apps/agent/` has its own set of configuration variables.
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `WIKI_AGENT_PORT` | `4111` | Yes | Agent HTTP server port |
+| `WIKI_AGENT_HOST` | `0.0.0.0` | Yes | Agent bind address |
+| `WIKI_AGENT_PUBLIC_URL` | `http://localhost:4111` | No | Public URL for agent callbacks |
+| `WIKI_AGENT_MODEL` | `gpt-5.4` | Yes | LLM model identifier for Mastra agent |
+| `WIKI_AGENT_REASONING_EFFORT` | `medium` | No | Reasoning effort level for the model |
+| `AGENT_INTERNAL_URL` | `http://127.0.0.1:4111` | No | Internal agent URL for server-to-agent calls |
+| `NEXT_PUBLIC_AGENT_URL` | `http://127.0.0.1:4111` | No | Agent URL exposed to the Next.js frontend |
+| `NEXT_PUBLIC_AGENT_WS_URL` | `ws://127.0.0.1:4111` | No | Agent WebSocket URL for the frontend |
+| `WIKI_REPO_ROOT` | (none) | Yes | Absolute path to the Kijko_Docs repository root |
+| `WIKI_CONTENT_ROOT` | (none) | Yes | Absolute path to `wiki-content/` directory |
+| `WIKI_DATABASE_PATH` | (none) | No | SQLite database path for the agent's own state |
+
+---
+
+## Docker Compose Overrides
+
+These variables control the Docker Compose stack topology defined in `docker-compose.yml`.
+
+### Image Tags
+
+| Variable | Default | Description |
+|---|---|---|
+| `WIKIAPP_IMAGE` | `ghcr.io/kijko-ai/kijko-docs-app:main` | WikiApp container image |
+| `SWARM_SERVER_IMAGE` | `ghcr.io/kijko-ai/swarm-server:main` | Swarm server container image |
+| `SWARM_UI_IMAGE` | `ghcr.io/kijko-ai/swarm-ui:main` | Swarm UI container image |
+
+### Port Bindings
+
+| Variable | Default | Description |
+|---|---|---|
+| `WIKIAPP_BIND_PORT` | `3001` | Host port for the WikiApp container |
+| `SWARM_SERVER_BIND_PORT` | `3008` | Host port for the Swarm server |
+| `SWARM_BIND_PORT` | `3456` | Host port for the Swarm UI |
+| `NGINX_BIND_PORT` | `8080` | Host port for the Caddy reverse proxy |
+
+### Volume Mounts
+
+| Variable | Default | Description |
+|---|---|---|
+| `WIKIAPP_DATA_DIR` | `./data` | Host directory for SQLite database |
+| `WIKIAPP_PROOFSHOT_ARTIFACTS_DIR` | `./data/proofshot-artifacts` | Host directory for proofshot outputs |
+| `WIKIAPP_AGENT_BROWSER_DIR` | `./data/agent-browser` | Host directory for browser data |
+| `WIKIAPP_CODEX_HOME_DIR` | `./data/codex-home` | Host directory for Codex configuration |
+| `WIKIAPP_CLAUDE_HOME_DIR` | `./data/claude-home` | Host directory for Claude configuration |
+
+---
+
+## Keycloak Service
+
+| Variable | Default | Description |
+|---|---|---|
+| `KC_BOOTSTRAP_ADMIN_USERNAME` | `bootstrap-admin` | Initial admin username for Keycloak |
+| `KC_BOOTSTRAP_ADMIN_PASSWORD` | `change-me` | Initial admin password |
+| `KEYCLOAK_DB_NAME` | `keycloak` | PostgreSQL database name for Keycloak |
+| `KEYCLOAK_DB_USERNAME` | `keycloak` | PostgreSQL username |
+| `KEYCLOAK_DB_PASSWORD` | `change-me` | PostgreSQL password |
+| `KEYCLOAK_PUBLIC_URL` | `http://localhost:8080/keycloak` | Public Keycloak URL (used for `--hostname` flag) |
+
+---
+
+## Swarm Server
+
+| Variable | Default | Description |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | (empty) | Anthropic API key for Claude models |
+| `CURSOR_API_KEY` | (empty) | Cursor API key |
+| `CLAUDE_OAUTH_CREDENTIALS` | (empty) | OAuth credentials for Claude |
+| `CURSOR_AUTH_TOKEN` | (empty) | Cursor authentication token |
+| `ALLOWED_ROOT_DIRECTORY` | (empty) | Filesystem boundary for Swarm agent access |
+| `CORS_ORIGIN` | `https://docs.kijko.nl` | Allowed CORS origin for Swarm API |
+| `TERMINAL_ENABLED` | `true` | Enable terminal access in Swarm |
+| `TERMINAL_PASSWORD` | (empty) | Password for terminal access |
+
+---
+
+## Production Stack Environment Files
+
+The production deployment at `/srv/docs-kijko/` uses two environment files:
+
+### `/etc/kijko-docs/stack.env`
+
+Contains all service configuration. Created by the deploy script from legacy env files or manually provisioned. Secrets like `SWARM_API_KEY` are auto-generated if missing.
+
+### `/etc/kijko-docs/release.env`
+
+Contains per-release overrides: image tags, compose project name, volume paths, and port bindings. Updated by the deploy-production workflow on each deployment.
+
+```bash
+# Example release.env
+COMPOSE_PROJECT_NAME=kijko_docs
+WIKIAPP_IMAGE=ghcr.io/kijko-ai/kijko-docs-app:abc123def456
+SWARM_UI_IMAGE=ghcr.io/kijko-ai/swarm-ui:main
+WIKIAPP_DATA_DIR=/srv/docs-kijko/data
+WIKIAPP_BIND_PORT=3001
+```
+
+<Callout type="info">
+The deploy script at `scripts/deploy/deploy-production.sh` automatically normalizes legacy configuration values (e.g., rewriting localhost database paths to container paths, updating internal Swarm URLs from localhost to Docker service names).
+</Callout>
+
+---
+
+## Config File: `repos.yaml`
+
+Repository monitoring can also be configured via `config/repos.yaml`:
+
+```yaml
+repos:
+  - url: https://github.com/kijko-ai/Kijko_Docs
+    branch: main
+    pollIntervalMinutes: 10
+```
+
+## Config File: `wikiagent.yaml`
+
+Agent behavior configuration at `config/wikiagent.yaml` controls pipeline defaults, model selection, and MCP tool timeouts.

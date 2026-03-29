@@ -1,0 +1,293 @@
+---
+title: "Configuration"
+description: "Environment variables, service ports, statusline customization, and all tunable options for Baton Exchange."
+icon: "Settings"
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion'
+import { TypeTable } from 'fumadocs-ui/components/type-table'
+
+All configurable options for Baton Exchange: environment variables, service endpoints, file paths, statusline behavior, and synthesis tuning.
+
+## Environment Variables
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `GEMINI_API_KEY` | -- | **Yes** | Google Gemini API key for baton synthesis. Also accepts `GOOGLE_API_KEY`. |
+| `BATON_HYPERVISA_URL` | `http://localhost:8042` | No | HyperVisa API base URL. |
+| `BATON_STATE_DIR` | `~/.cortex/baton` | No | Directory for all baton state files. |
+| `BATON_HANDOFF_PCT` | `80` | No | Context usage percentage where auto-compact fires. |
+| `CLAUDE_SESSION_ID` | -- | No | Fallback session ID if not provided in hook input. |
+
+<Callout type="warn" title="Gemini API key is required">
+  Without `GEMINI_API_KEY`, baton synthesis falls back to raw cxdb timeline extraction -- no LLM compression, no cross-session knowledge synthesis. Set this in your shell profile for persistent configuration.
+</Callout>
+
+## Service Endpoints
+
+Baton Exchange depends on two required services and two optional ones:
+
+### Required Services
+
+| Service | Default Host | Default Port | Protocol | Purpose |
+|---------|-------------|--------------|----------|---------|
+| **cxdb** (binary) | `127.0.0.1` | `9009` | Custom binary | Turn writes: create context, append turn, fork |
+| **cxdb** (HTTP) | `127.0.0.1` | `9010` | HTTP REST | Turn reads: list contexts, get turns, health check |
+| **HyperVisa API** | `localhost` | `8042` | HTTP REST | Baton synthesis, session stats, tier distribution |
+
+### Optional Services
+
+| Service | Access Method | Purpose |
+|---------|--------------|---------|
+| **NotebookLM** | Subprocess via pipx venv | Knowledge enrichment for baton synthesis |
+| **Cortex DuckDB** | Direct file access | Session forensics (transcript ingestion) |
+
+### Changing Service Ports
+
+cxdb ports are configured in the `CxdbClient` constructor:
+
+```python title="Custom cxdb ports"
+from cortex.cxdb_client import CxdbClient
+
+client = CxdbClient(
+    binary_host="10.0.0.5",
+    binary_port=19009,
+    http_host="10.0.0.5",
+    http_port=19010,
+)
+```
+
+The HyperVisa API URL is hardcoded in the hook scripts as `http://localhost:8042/api/hypervisa`. To change it, edit the `HYPERVISA_API` constant in:
+
+- `cortex/hooks/baton_hook.py`
+- `cortex/baton_refresh.py`
+
+## File Paths
+
+All state files live under `~/.cortex/baton/` by default:
+
+| File | Purpose | Written By | Read By |
+|------|---------|-----------|---------|
+| `project-contexts.json` | Project -> cxdb context ID registry | `baton.py` | `baton.py`, statusline |
+| `baton-{project}.json` | Per-project baton cache | `baton_hook.py`, `baton_refresh.py` | Statusline |
+| `last-baton.json` | Global last-baton (backwards compat) | `baton_hook.py`, `baton_refresh.py` | Statusline (fallback) |
+| `last-inject.json` | Injection telemetry | `baton_hook.py` | Statusline |
+| `hypervisa-stats.json` | HyperVisa token/session stats | `baton_hook.py`, `baton_refresh.py` | Statusline |
+| `learnings.db` | SQLite: accumulated learnings | `learnings_db.py` via `baton_refresh.py` | Statusline |
+
+### Claude Code Settings
+
+The installer configures `~/.claude/settings.json`. Three sections are managed:
+
+<Tabs items={['SessionStart Hook', 'PreCompact Hook', 'Statusline']}>
+  <Tab value="SessionStart Hook">
+    ```json title="~/.claude/settings.json"
+    {
+      "hooks": {
+        "SessionStart": [{
+          "hooks": [{
+            "type": "command",
+            "command": "PYTHONPATH=/path/to/cortex:$PYTHONPATH python3 /path/to/cortex/hooks/baton_hook.py",
+            "timeout": 20
+          }]
+        }]
+      }
+    }
+    ```
+    The `timeout: 20` gives the baton synthesis 20 seconds to complete. If HyperVisa or Gemini are slow, increase this value.
+  </Tab>
+  <Tab value="PreCompact Hook">
+    ```json title="~/.claude/settings.json"
+    {
+      "hooks": {
+        "PreCompact": [{
+          "matcher": ".*",
+          "hooks": [{
+            "type": "command",
+            "command": "PYTHONPATH=/path/to/cortex:$PYTHONPATH python3 /path/to/cortex/hooks/compact_hook.py",
+            "timeout": 30
+          }]
+        }]
+      }
+    }
+    ```
+    The `matcher: ".*"` ensures the hook fires for all projects. The `timeout: 30` accommodates DuckDB ingestion + NLM sync + cxdb write.
+  </Tab>
+  <Tab value="Statusline">
+    ```json title="~/.claude/settings.json"
+    {
+      "statusLine": {
+        "type": "command",
+        "command": "python3 ~/.claude/hooks/baton-statusline.py"
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Statusline Configuration
+
+The statusline renders in the Claude Code terminal footer. It reads from local files only -- no network calls.
+
+### Anatomy
+
+```
+model | zap mode t{depth} warn{gotchas} purpose... @{age} | dir
+  Claude full5/empty5 55% baton->80%
+  HV full3/empty7 2% 519K/32M (32 slots)
+-- session learnings (42 total, updated 2m ago) --
+  play Refactoring auth handler
+  warn Auth expires every 25min
+  check Chose HyperVisa for compression
+  constraint Use httponly cookies
+  done 3 done (last: JWT access token generation)
+```
+
+### Segment Reference
+
+| Segment | Source | Example |
+|---------|--------|---------|
+| Model name | `stdin: model.display_name` | `Opus 4.6` |
+| Mode badge | `baton.steering.mode` | `implement` (green), `debug` (red), `refactor` (yellow), `review` (magenta) |
+| Turn depth | `registry.head_turn_id - registry.context_id` | `t37` |
+| Gotcha count | `len(baton.steering.gotchas)` | `warn3` |
+| Purpose | `baton.purpose[:40]` | `Build a self-sustaining context-com...` |
+| Inject age | `last-inject.json timestamp` | `@2m` |
+| Claude context bar | `stdin: context_window.remaining_percentage` | `full5/empty5 55%` |
+| Handoff marker | Fixed at 80% | `baton->80%` or `zap BATON EXCHANGE` (above 80%) |
+| HyperVisa bar | `hypervisa-stats.json` | `HV full3/empty7 2% 519K/32M (32 slots)` |
+| Learnings | `learnings.db` + `baton-{project}.json` | In-progress, gotchas, decisions, constraints, completed count |
+
+### Context Bar Colors
+
+**Claude context bar** (based on `used %`):
+
+| Usage | Color |
+|-------|-------|
+| < 50% | Green |
+| 50-69% | Yellow |
+| 70-79% | Orange |
+| >= 80% | Blinking red with skull prefix |
+
+**HyperVisa context bar** (based on token utilization):
+
+| Usage | Color |
+|-------|-------|
+| < 50% | Cyan |
+| 50-74% | Blue |
+| 75-89% | Yellow |
+| >= 90% | Orange |
+
+### Handoff Threshold
+
+The handoff threshold is fixed at 80% context usage. When Claude's context reaches 80% used (20% remaining), auto-compact fires and the baton exchange occurs. The bar shows this with:
+
+- Below 80%: `baton->80%` label in dim text
+- At or above 80%: `zap BATON EXCHANGE` label in bold red
+
+The 10-block context bar has position 8 (80%) marked with a distinct character when unfilled.
+
+## Synthesis Tuning
+
+### Compression Mode
+
+The `compression` parameter in the HyperVisa `/baton` API controls how much timeline history is read:
+
+| Mode | Timeline Limit | Use Case |
+|------|---------------|----------|
+| `normal` | Last 10 turns | Default. Most sessions. |
+| `ultra` | Last 5 turns | Near context-limit sessions where every token counts. |
+| `fallback` | N/A (no LLM) | Gemini unavailable. Raw extraction from cxdb metadata. |
+
+### Gemini Model
+
+The default model is `gemini-3-flash-preview`. To change it, edit the `DEFAULT_MODEL` constant in `hypervisa/gemini.py`:
+
+```python title="hypervisa/gemini.py"
+DEFAULT_MODEL = "gemini-3-flash-preview"  # Change to "gemini-2.0-pro" etc.
+```
+
+### Synthesis Temperature
+
+The default temperature is `0.2` (low creativity for accurate compression). This is set in `hypervisa/baton.py` within the `synthesize_baton` function:
+
+```python title="hypervisa/baton.py"
+config=gtypes.GenerateContentConfig(
+    temperature=0.2,            # Lower = more deterministic
+    max_output_tokens=2048,
+    response_mime_type="application/json",
+)
+```
+
+## Hook Timeouts
+
+| Hook | Default Timeout | Adjustable In |
+|------|----------------|---------------|
+| SessionStart | 20 seconds | `~/.claude/settings.json` (`hooks.SessionStart[0].hooks[0].timeout`) |
+| PreCompact | 30 seconds | `~/.claude/settings.json` (`hooks.PreCompact[0].hooks[0].timeout`) |
+
+If synthesis is consistently slow (cold Gemini calls, slow cxdb reads), increase these timeouts. The hooks always return `{continue: true}` on timeout, so Claude Code is never blocked.
+
+## NotebookLM Configuration
+
+NotebookLM integration is optional and requires:
+
+1. **pipx-installed `notebooklm-mcp-server`** at `~/.local/share/pipx/venvs/notebooklm-mcp-server/bin/python`
+2. **Auth file** at `~/.notebooklm-mcp/auth.json` containing `cookies`, `csrf_token`, and `session_id`
+3. **Weekly state** at `~/.cortex/state/weekly_notebooks.json` for Oracle-EM notebook routing
+4. **Hivemind registry** at `~/.cortex/smith/hivemind-registry.json` for project-specific notebook routing
+
+If any of these are missing, NLM is silently skipped. The `_meta.nlm_available` field in the baton indicates whether NLM context was used.
+
+## Python Dependencies
+
+From `requirements.txt`:
+
+| Package | Version | Required | Purpose |
+|---------|---------|----------|---------|
+| `blake3` | >= 0.4.0 | Yes | BLAKE3 content hashing for cxdb turn integrity |
+| `httpx` | >= 0.24.0 | Yes | HTTP client for cxdb HTTP API |
+| `msgpack` | >= 1.0.0 | Yes | MessagePack encoding for cxdb turn payloads |
+| `google-genai` | >= 1.0.0 | Yes | Gemini API client for baton synthesis |
+| `duckdb` | >= 1.0.0 | No | Cortex DuckDB session forensics (full compact hook) |
+
+## Installation Paths
+
+The installer creates the following filesystem layout:
+
+```
+~/.claude/
+  hooks/
+    baton-statusline.py          # Copied from repo
+  settings.json                   # Modified (hooks + statusline added)
+
+~/.cortex/baton/
+  cortex -> /path/to/baton-exchange/cortex       # Symlink
+  hypervisa -> /path/to/baton-exchange/hypervisa  # Symlink
+  project-contexts.json           # Created on first session
+  learnings.db                    # Created on first baton refresh
+```
+
+<Callout type="info" title="Symlinks vs copies">
+  The installer uses symlinks, not copies. This means updating the baton-exchange repo (`git pull`) immediately updates the installed code. No reinstallation needed.
+</Callout>
+
+## Next Steps
+
+<Cards>
+  <Card title="Quickstart" href="/docs/baton-exchange/quickstart">
+    Install and configure Baton Exchange from scratch.
+  </Card>
+  <Card title="Architecture" href="/docs/baton-exchange/architecture">
+    See how all configuration feeds into the component topology.
+  </Card>
+  <Card title="Protocol Specification" href="/docs/baton-exchange/protocol-spec">
+    Formal schemas for the baton, cxdb wire protocol, and synthesis prompt.
+  </Card>
+  <Card title="API Reference" href="/docs/baton-exchange/api-reference">
+    Complete Python API reference.
+  </Card>
+</Cards>

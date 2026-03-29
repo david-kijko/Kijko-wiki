@@ -1,381 +1,584 @@
 ---
 title: API Reference
-description: Complete REST and gRPC endpoint reference for Panopticon ingestion, query, and management APIs
+description: "Complete reference for REST endpoints, MCP tools, CLI commands, and Nexus operations exposed by Panopticon"
 icon: FileCode
-page_type: feature_guide
-audience: both
-tags:
-  - panopticon
-  - api
-  - rest
-  - grpc
-  - reference
 ---
-Panopticon exposes three API surfaces: the ingestion API for writing telemetry data, the query API for reading data and metadata, and the management API for configuring runtime behavior. All three surfaces are available over HTTP with JSON payloads, and the ingestion and query surfaces also support gRPC with Protocol Buffer payloads for high-throughput production use cases. This reference documents every endpoint, its parameters, expected payloads, and error responses.
 
-## Base URLs
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion'
+import { TypeTable } from 'fumadocs-ui/components/type-table'
 
-| Surface    | Default Port | Base Path     | Protocol     |
-|-----------|-------------|---------------|-------------|
-| Ingestion | 9091        | `/api/v1`     | HTTP, gRPC  |
-| Query     | 9090        | `/api/v1`     | HTTP, gRPC  |
-| Management| 9090        | `/api/v1/admin` | HTTP      |
+Panopticon exposes four API surfaces: a REST API for dashboard integration, an MCP server for AI agent tool access, a CLI for operators, and a Nexus service for cross-namespace Temporal workflows. This reference documents every endpoint, tool, command, and operation with parameters, examples, and error handling.
 
-All endpoints accept and return `application/json` by default. To use Protocol Buffers over HTTP, set the `Content-Type` header to `application/x-protobuf` and encode the request body accordingly.
+## REST API
 
-## Authentication
+Flask API on port 8043 (configurable via `PANOPTICON_API_PORT`). CORS is enabled for all origins on `/api/*` paths.
 
-<Callout type="info">
-Authentication is optional in standalone mode (the default for local development). In production deployments, enable bearer token authentication by setting `server.auth.enabled: true` in the configuration. All requests must then include an `Authorization: Bearer <token>` header.
-</Callout>
+### GET /api/panopticon/health
 
-## Ingestion API
+System health check including Temporal connectivity, MCP server count, tool count, and catalog status.
 
-The ingestion API accepts metric data from application services and infrastructure agents. It is designed for high throughput with minimal latency overhead on the sender side.
-
-### POST /api/v1/ingest
-
-Push a batch of metric samples. This is the primary write endpoint.
-
-**Request Body:**
-
-```typescript
-interface IngestRequest {
-  /** Array of metric samples to ingest */
-  samples: Array<{
-    /** Metric name (e.g., "http_request_duration_seconds") */
-    metric: string;
-    /** Key-value label pairs for this sample */
-    labels: Record<string, string>;
-    /** Unix epoch timestamp in milliseconds */
-    timestamp: number;
-    /** Numeric measurement value */
-    value: number;
-  }>;
-  /** Identifier for the sending service (used for rate limiting) */
-  source: string;
-}
-```
-
-**Response (200 OK):**
-
-```json
-{
-  "accepted": 100,
-  "rejected": 0
-}
-```
-
-**Response (400 Bad Request):**
-
-```json
-{
-  "error": "validation_failed",
-  "details": [
-    { "index": 3, "field": "metric", "message": "metric name contains invalid characters" },
-    { "index": 7, "field": "timestamp", "message": "timestamp is in the future" }
-  ]
-}
-```
-
-**Response (429 Too Many Requests):**
-
-```json
-{
-  "error": "rate_limited",
-  "source": "my-service",
-  "limit": 10000,
-  "retry_after_ms": 1000
-}
-```
-
-<Tabs items={["curl", "Node.js", "Python"]}>
-  <Tab value="curl">
-    ```bash
-    curl -X POST http://localhost:9091/api/v1/ingest \
-      -H "Content-Type: application/json" \
-      -d '{
-        "samples": [
-          {
-            "metric": "http_requests_total",
-            "labels": { "method": "GET", "status": "200" },
-            "timestamp": 1711700000000,
-            "value": 1547
-          }
-        ],
-        "source": "api-gateway"
-      }'
-    ```
-  </Tab>
-  <Tab value="Node.js">
-    ```typescript
-    const response = await fetch("http://localhost:9091/api/v1/ingest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        samples: [{
-          metric: "http_requests_total",
-          labels: { method: "GET", status: "200" },
-          timestamp: Date.now(),
-          value: 1547,
-        }],
-        source: "api-gateway",
-      }),
-    });
-
-    const result = await response.json();
-    console.log(`Accepted: ${result.accepted}, Rejected: ${result.rejected}`);
-    ```
-  </Tab>
-  <Tab value="Python">
-    ```python
-    import requests
-    import time
-
-    response = requests.post(
-        "http://localhost:9091/api/v1/ingest",
-        json={
-            "samples": [{
-                "metric": "http_requests_total",
-                "labels": {"method": "GET", "status": "200"},
-                "timestamp": int(time.time() * 1000),
-                "value": 1547,
-            }],
-            "source": "api-gateway",
-        },
-    )
-
-    result = response.json()
-    print(f"Accepted: {result['accepted']}, Rejected: {result['rejected']}")
-    ```
-  </Tab>
-</Tabs>
-
-### POST /api/v1/ingest/batch
-
-Push a large batch of samples with streaming support. Unlike the standard ingest endpoint, this accepts newline-delimited JSON (NDJSON) for efficient bulk imports.
-
-**Request Body** (NDJSON, one sample per line):
-
-```text
-{"metric":"cpu_usage","labels":{"host":"web-1"},"timestamp":1711700000000,"value":0.72}
-{"metric":"cpu_usage","labels":{"host":"web-2"},"timestamp":1711700000000,"value":0.45}
-{"metric":"cpu_usage","labels":{"host":"web-3"},"timestamp":1711700000000,"value":0.88}
-```
-
-**Response (200 OK):**
-
-```json
-{ "accepted": 3, "rejected": 0, "elapsed_ms": 12 }
-```
-
-### GET /api/v1/ingest/health
-
-Health check for the ingestion service.
-
-```json
-{ "status": "ok", "uptime_seconds": 3600, "samples_ingested": 1500000 }
-```
-
-## Query API
-
-The query API provides read access to stored metric data. It supports instant queries (single point in time), range queries (time series), and metadata queries (label introspection).
-
-### GET /api/v1/query
-
-Execute a range query over stored metric data.
-
-**Query Parameters:**
-
-| Parameter   | Type     | Required | Description                                    |
-|------------ |--------- |--------- |----------------------------------------------- |
-| `q`         | string   | Yes      | Metric name or query expression                |
-| `from`      | number   | Yes      | Start timestamp (Unix ms)                      |
-| `to`        | number   | Yes      | End timestamp (Unix ms)                        |
-| `step`      | string   | No       | Resolution step (e.g., "1m", "5m"). Default: auto |
-| `labels`    | string   | No       | Label filter (e.g., `method=GET,status=200`)   |
-| `aggregate` | string   | No       | Aggregation function: `avg`, `sum`, `min`, `max`, `p50`, `p95`, `p99` |
-
-**Response (200 OK):**
+**Response:**
 
 ```json
 {
   "status": "ok",
-  "data": {
-    "series": [
-      {
-        "metric": "http_requests_total",
-        "labels": { "method": "GET", "status": "200" },
-        "samples": [
-          { "timestamp": 1711700000000, "value": 1547 },
-          { "timestamp": 1711700060000, "value": 1623 },
-          { "timestamp": 1711700120000, "value": 1701 }
-        ]
-      }
-    ],
-    "stats": {
-      "series_scanned": 1,
-      "samples_scanned": 180,
-      "elapsed_ms": 4
-    }
+  "service": "panopticon",
+  "version": "0.1.0",
+  "temporal": {
+    "address": "localhost:7233",
+    "connected": true
+  },
+  "servers_count": 3,
+  "tools_count": 47,
+  "catalog_built": true,
+  "catalog_updated": "2026-03-29T10:15:00"
+}
+```
+
+### GET /api/panopticon/servers
+
+List all registered MCP servers with their runtime status.
+
+**Response:**
+
+```json
+[
+  {
+    "name": "firecrawl",
+    "command": "npx",
+    "args": ["@anthropic/firecrawl-mcp"],
+    "enabled": true,
+    "running": true,
+    "status": "connected"
+  },
+  {
+    "name": "exa",
+    "command": "npx",
+    "args": ["@anthropic/exa-mcp"],
+    "enabled": true,
+    "running": false,
+    "status": "standby"
+  }
+]
+```
+
+Status values: `connected` (process running), `standby` (enabled but not running -- stdio servers start on-demand), `disabled` (explicitly disabled in config).
+
+### GET /api/panopticon/catalog
+
+Video catalog metadata including Gemini file references and schema counts.
+
+**Response:**
+
+```json
+{
+  "file_name": "files/abc123xyz",
+  "file_uri": "https://generativelanguage.googleapis.com/...",
+  "schema_count": 47,
+  "server_count": 3,
+  "updated_at": "2026-03-29T10:15:00"
+}
+```
+
+### GET /api/panopticon/tools
+
+All discovered tools across all registered MCP servers.
+
+**Response:**
+
+```json
+[
+  {
+    "server": "firecrawl",
+    "name": "scrape",
+    "description": "Scrape a single URL and return its content"
+  },
+  {
+    "server": "exa",
+    "name": "web_search_exa",
+    "description": "Search the web using Exa's neural search"
+  }
+]
+```
+
+### GET /api/panopticon/agents
+
+Status of all agents in the Kijko Pantheon (Oracle, Smith, Trinity).
+
+**Response:**
+
+```json
+{
+  "oracle": {
+    "name": "oracle",
+    "role": "Type 2 governance -- coherence, taste, architectural judgment",
+    "service": "oracle-agent.service",
+    "running": true
+  },
+  "smith": {
+    "name": "smith",
+    "role": "Sidecar sentinel -- guardrails, context engineering, QA",
+    "type": "hooks",
+    "running": true
+  },
+  "trinity": {
+    "name": "trinity",
+    "role": "Optimizer -- APO pipeline, reward signals, deployment",
+    "service": "trinity-agent.service",
+    "running": false
   }
 }
 ```
 
-### GET /api/v1/query/instant
+### GET /api/panopticon/traces
 
-Execute a point-in-time query. Returns the most recent value for each matching series.
-
-**Query Parameters:**
-
-| Parameter | Type   | Required | Description                          |
-|---------- |------- |--------- |------------------------------------- |
-| `q`       | string | Yes      | Metric name or query expression      |
-| `time`    | number | No       | Timestamp (Unix ms). Default: now    |
-| `labels`  | string | No       | Label filter                         |
-
-### GET /api/v1/labels
-
-List all label keys present in the stored data.
-
-```json
-{
-  "status": "ok",
-  "data": ["__name__", "env", "host", "method", "path", "service", "status"]
-}
-```
-
-### GET /api/v1/labels/\{key\}/values
-
-List all values for a specific label key.
-
-```bash
-curl -s "http://localhost:9090/api/v1/labels/service/values" | jq .
-```
-
-```json
-{
-  "status": "ok",
-  "data": ["api-gateway", "auth-service", "panopticon", "user-service"]
-}
-```
-
-### GET /api/v1/series
-
-List all metric series matching a label filter.
+Execution traces, sorted most-recent-first.
 
 **Query Parameters:**
 
-| Parameter | Type   | Required | Description                    |
-|---------- |------- |--------- |------------------------------- |
-| `match`   | string | Yes      | Label matcher expression       |
-| `from`    | number | No       | Start of time range (Unix ms)  |
-| `to`      | number | No       | End of time range (Unix ms)    |
+<TypeTable
+  type={{
+    limit: { type: 'integer', description: 'Maximum traces to return', default: '50' },
+    since: { type: 'string', description: 'ISO timestamp filter (e.g., "2026-03-29T00:00:00")' },
+  }}
+/>
 
-## Management API
+**Response:**
 
-The management API provides runtime configuration and operational endpoints. These endpoints are only available on the query port and require admin authentication in production.
+```json
+[
+  {
+    "timestamp": "2026-03-29T10:15:30Z",
+    "tool_name": "firecrawl.scrape",
+    "params": {"url": "https://example.com"},
+    "result_summary": "200 OK, 1234 bytes",
+    "duration_ms": 2340.5,
+    "success": true,
+    "agent_context": "smith-session-abc",
+    "reward": 1.2
+  }
+]
+```
 
-### GET /api/v1/admin/config
+### GET /api/panopticon/traces/stats
 
-Returns the current runtime configuration as JSON.
+Aggregated trace statistics with per-tool breakdowns and hourly distribution.
 
-### PUT /api/v1/admin/config/reload
+**Query Parameters:**
 
-Triggers a hot reload of the configuration file. Returns the validation result before applying.
+<TypeTable
+  type={{
+    since: { type: 'string', description: 'ISO timestamp for aggregation window start. Default: last 24 hours.' },
+  }}
+/>
+
+**Response:**
 
 ```json
 {
-  "status": "ok",
-  "message": "Configuration reloaded",
-  "changes": ["scrape.targets[1].interval: 15s -> 30s"]
+  "total": 156,
+  "success": 142,
+  "failure": 14,
+  "success_rate": 0.91,
+  "avg_duration_ms": 1523.4,
+  "tools": {
+    "firecrawl.scrape": {
+      "count": 45,
+      "success_rate": 0.956,
+      "avg_duration_ms": 2100.3
+    }
+  },
+  "by_hour": [
+    {"hour": "2026-03-29T00", "count": 12, "success": 11}
+  ]
 }
 ```
 
-### GET /api/v1/admin/targets
+### GET /api/panopticon/training
 
-Lists all scrape targets and their current status.
+Training metrics and state from the Agent Lightning RL pipeline.
+
+**Response:**
 
 ```json
 {
-  "status": "ok",
-  "targets": [
+  "state": {
+    "last_training": "2026-03-29T05:00:00",
+    "total_traces": 4520,
+    "total_rollouts": 312
+  },
+  "today_traces": 45,
+  "today_reward": 38.7
+}
+```
+
+### GET /api/panopticon/hive
+
+Hive mind statistics and recent promotions.
+
+**Response:**
+
+```json
+{
+  "promoted_patterns": 12,
+  "local_observations": 234,
+  "top_tools": {"firecrawl.scrape": 5, "exa.web_search_exa": 4},
+  "promotion_threshold": 3,
+  "recent_promotions": [
     {
-      "url": "http://localhost:9090/metrics",
-      "state": "up",
-      "last_scrape": "2024-03-29T10:15:00Z",
-      "scrape_duration_ms": 23,
-      "samples_scraped": 147
+      "timestamp": "2026-03-29T09:30:00Z",
+      "type": "promotion",
+      "tool": "firecrawl.scrape",
+      "category": "web content",
+      "message": "Tool 'firecrawl.scrape' proven effective for 'web content' queries (3+ successes)"
     }
   ]
 }
 ```
 
-### POST /api/v1/admin/alerts/rules
+### GET /api/panopticon/memory
 
-Create or update an alerting rule.
+Episodic memory patterns including tool usage frequency and success rates.
 
-```json
-{
-  "name": "high_error_rate",
-  "metric": "http_requests_total",
-  "labels": { "status": "500" },
-  "condition": "rate(5m) > 10",
-  "duration": "2m",
-  "severity": "critical",
-  "notify": ["webhook:ops-channel"]
-}
-```
-
-### DELETE /api/v1/admin/alerts/rules/\{name\}
-
-Delete an alerting rule by name.
-
-## Error Codes
-
-All API errors follow a consistent format:
+**Response:**
 
 ```json
 {
-  "error": "error_code",
-  "message": "Human-readable description",
-  "details": {}
+  "episode_count": 567,
+  "tool_patterns": [
+    {"tool": "firecrawl.scrape", "count": 145, "success_rate": 0.96},
+    {"tool": "exa.web_search_exa", "count": 89, "success_rate": 0.91}
+  ]
 }
 ```
 
-| Code                | HTTP Status | Description                              |
-|-------------------- |------------ |----------------------------------------- |
-| `validation_failed` | 400         | Request payload failed validation        |
-| `query_parse_error` | 400         | Query expression could not be parsed     |
-| `not_found`         | 404         | Requested resource does not exist        |
-| `rate_limited`      | 429         | Per-source rate limit exceeded           |
-| `internal_error`    | 500         | Unexpected server error                  |
-| `storage_error`     | 503         | Storage backend is unavailable           |
+### GET /api/panopticon/guardrails
 
-<Callout type="info">
-All 5xx errors include a `request_id` field in the response body. Include this ID when reporting issues to help with log correlation.
-</Callout>
+Current guardrail enforcement policy (set by Smith).
 
-## Rate Limits
+**Response:**
 
-Default rate limits by endpoint:
+```json
+{
+  "level": "MEDIUM",
+  "blocked_tools": ["dangerous_tool.delete_all"],
+  "context_budget": {
+    "warn": 0.85,
+    "compress": 0.90,
+    "emergency": 0.95
+  }
+}
+```
 
-| Endpoint              | Default Limit           | Configurable Via            |
-|---------------------- |------------------------ |---------------------------- |
-| `/api/v1/ingest`      | 10,000 samples/sec/source | `server.rate_limit.ingest` |
-| `/api/v1/query`       | 100 queries/sec          | `server.rate_limit.query`  |
-| `/api/v1/admin/*`     | 10 requests/sec          | `server.rate_limit.admin`  |
+### GET /api/panopticon/temporal
+
+Temporal workflow status with live workflow listing.
+
+**Response:**
+
+```json
+{
+  "address": "localhost:7233",
+  "namespace": "default",
+  "connected": true,
+  "ui_url": "http://localhost:8233/namespaces/default/workflows",
+  "stats": {
+    "running": 2,
+    "completed": 156,
+    "failed": 3,
+    "total": 161
+  },
+  "workflows": [
+    {
+      "id": "tool-firecrawl-scrape-abc12345",
+      "run_id": "xyz789",
+      "type": "ToolExecutionWorkflow",
+      "status": "COMPLETED",
+      "start_time": "2026-03-29T10:15:00Z",
+      "close_time": "2026-03-29T10:15:03Z",
+      "task_queue": "panopticon-tasks"
+    }
+  ]
+}
+```
+
+## MCP Server Tools
+
+The MCP server (`panopticon serve`) exposes 7 tools via stdio JSON-RPC. These are the tools that AI agents call through the MCP protocol.
+
+### health_check
+
+Check Panopticon status: Temporal connection, registered MCP servers, catalog freshness, and API key pool summary.
+
+**Parameters:** None
+
+**Example Response:**
+
+```json
+{
+  "temporal": {"address": "localhost:7233", "connected": true},
+  "servers": {
+    "firecrawl": {"enabled": true, "command": "npx"}
+  },
+  "catalog": {"built": true, "schema_count": 47, "updated_at": "2026-03-29T10:15:00"},
+  "total_tools": 47,
+  "key_pool": {"initialized": true, "pool_size": 3, "active_keys": 3}
+}
+```
+
+### browse_tools
+
+Search available tools using natural language. Uses HyperVisa video catalog + Gemini visual search. Returns top-3 matches with confidence scores. Output: ~500 tokens.
+
+<TypeTable
+  type={{
+    query: { type: 'string', description: 'Natural language description of what you want to do', required: true },
+  }}
+/>
+
+**Example:**
+
+```json
+// Input
+{"query": "scrape a webpage"}
+
+// Output
+[
+  {"server": "firecrawl", "tool": "scrape", "description": "Scrape a URL", "confidence": 0.95, "reason": "Direct match for web scraping"},
+  {"server": "exa", "tool": "get_contents", "description": "Get URL contents", "confidence": 0.72}
+]
+```
+
+### get_tool_details
+
+Get the full JSON schema for a specific tool. Use after `browse_tools` to see parameters. Output: ~2,000 tokens.
+
+<TypeTable
+  type={{
+    tool_name: { type: 'string', description: 'Tool name (e.g., "scrape") or server.tool (e.g., "firecrawl.scrape")', required: true },
+  }}
+/>
+
+### execute_tool
+
+Execute a tool call directly (raw mode). Routes through Temporal for durable execution.
+
+<TypeTable
+  type={{
+    server: { type: 'string', description: 'MCP server name', required: true },
+    tool: { type: 'string', description: 'Tool name on the server', required: true },
+    params: { type: 'object', description: 'Tool parameters' },
+  }}
+/>
+
+### smart_execute
+
+Natural language to tool to result. Gemini finds the right tool, fills parameters, executes via Temporal, returns result.
+
+<TypeTable
+  type={{
+    intent: { type: 'string', description: 'What you want to accomplish (e.g., "fetch the content of example.com")', required: true },
+  }}
+/>
+
+### execute_parallel
+
+Execute multiple tool calls with a dependency graph. Independent calls run in parallel. Supports compensating rollback on failure.
+
+<TypeTable
+  type={{
+    steps: { type: 'array', description: 'Array of step objects with server, tool, params, depends_on, and compensate fields', required: true },
+  }}
+/>
+
+**Step Schema:**
+
+```json
+{
+  "server": "github",
+  "tool": "create_branch",
+  "params": {"repo": "my-repo", "branch": "feature-x"},
+  "depends_on": [],
+  "compensate": {
+    "tool": "delete_branch",
+    "params": {"branch": "feature-x"}
+  }
+}
+```
+
+### key_pool_health
+
+Detailed Gemini API key pool status. Shows per-key RPM usage, cooldown state, failure counts, and key type (regular vs Vertex).
+
+**Parameters:** None
+
+**Example Response:**
+
+```json
+{
+  "pool_size": 3,
+  "active_keys": 3,
+  "cached_clients": 2,
+  "keys": [
+    {"key_suffix": "...Xy4z", "key_type": "regular", "status": "available (3/10 rpm)", "total_requests": 45},
+    {"key_suffix": "...Ab2c", "key_type": "vertex", "status": "cooling (23s)", "total_requests": 12}
+  ]
+}
+```
+
+## CLI Commands
+
+The CLI (`panopticon`) is built with Click 8.0+.
+
+### panopticon discover
+
+Build or refresh the HyperVisa video catalog from MCP servers.
+
+```bash
+panopticon discover --rebuild
+```
+
+| Flag | Description |
+|------|-------------|
+| `--rebuild` | Force rebuild catalog from all servers (ignore cache) |
+
+### panopticon browse
+
+Search available tools by natural language query.
+
+```bash
+panopticon browse "web scraping"
+```
+
+### panopticon details
+
+Get full JSON schema for a tool.
+
+```bash
+panopticon details firecrawl.scrape
+```
+
+### panopticon exec
+
+Execute a tool call (raw mode). Use `server.tool` notation.
+
+```bash
+panopticon exec firecrawl.scrape '{"url":"https://example.com"}'
+```
+
+### panopticon ask
+
+Smart execution: natural language to tool to result.
+
+```bash
+panopticon ask "fetch the content of example.com"
+```
+
+### panopticon health
+
+Check system health: Temporal, MCP servers, catalog.
+
+```bash
+panopticon health
+```
+
+### panopticon worker
+
+Start the Temporal worker process. Must be running for any workflow execution.
+
+```bash
+panopticon worker
+```
+
+### panopticon serve
+
+Start the Panopticon MCP server (stdio transport).
+
+```bash
+panopticon serve
+```
+
+### panopticon api
+
+Start the REST API server for dashboard integration.
+
+```bash
+panopticon api --port 8043
+```
+
+### panopticon register
+
+Register a new MCP server.
+
+```bash
+panopticon register firecrawl npx -a @anthropic/firecrawl-mcp -e FIRECRAWL_API_KEY=fc-xxx
+```
+
+| Flag | Description |
+|------|-------------|
+| `-a`, `--args` | Server arguments (repeatable) |
+| `-e`, `--env` | Environment variables as KEY=VALUE (repeatable) |
+
+## Nexus Operations
+
+The Nexus service (`panopticon/temporal/nexus_service.py`) exposes 4 operations for cross-namespace invocation via Temporal Nexus.
+
+### execute_tool
+
+**Input:** `ExecuteToolInput(server_name, tool_name, params)`
+**Output:** `ExecuteToolOutput(tool, result, error, duration_ms, ok, retried)`
+**Backing Workflow:** `ToolExecutionWorkflow`
+
+### browse_tools
+
+**Input:** `BrowseToolsInput(query, max_results=3)`
+**Output:** `BrowseToolsOutput(tools, query, ok, error)`
+**Backing Workflow:** `BrowseToolsWorkflow`
+
+### refresh_catalog
+
+**Input:** `RefreshCatalogInput(force=False)`
+**Output:** `RefreshCatalogOutput(video_path, file_name, file_uri, schema_count, ok, error)`
+**Backing Workflow:** `CatalogRefreshFromRegistryWorkflow`
+
+### health_check
+
+**Input:** `HealthCheckInput()`
+**Output:** `HealthCheckOutput(connected, servers_running, servers_total, tools_count, agents, temporal_connected)`
+**Backing Workflow:** `HealthCheckWorkflow`
+
+## Error Handling
+
+All MCP tool calls return `CallToolResult` with `isError` set to `true` on failure. The error message is in the `TextContent` payload.
+
+All REST endpoints return JSON. Errors follow this pattern:
+
+```json
+{
+  "error": "error description"
+}
+```
+
+Common error patterns:
+
+| Error | Cause | Resolution |
+|-------|-------|-----------|
+| `"No catalog built. Run: panopticon discover --rebuild"` | Video catalog not yet created | Run `panopticon discover --rebuild` |
+| `"Tool not found: X"` | Tool name does not exist in any server | Check spelling, run `panopticon browse` to find correct name |
+| `"All keys rate-limited"` | Gemini key pool exhausted | Add more keys or wait for cooldown |
+| `"Unknown MCP server: X"` | Server not registered | Register with `panopticon register` |
+| `"Server X is disabled"` | Server explicitly disabled in config | Set `enabled: true` in `servers.yaml` |
 
 ## Next Steps
 
 <Cards>
   <Card title="Configuration" href="/docs/panopticon/configuration">
-    Customize rate limits, retention policies, and authentication settings.
+    Configure MCP servers, guardrails, key pools, and Temporal connection details.
   </Card>
   <Card title="Architecture" href="/docs/panopticon/architecture">
     Understand the internal systems that power these endpoints.
-  </Card>
-  <Card title="Quickstart" href="/docs/panopticon/quickstart">
-    Try these APIs hands-on with the local development setup.
   </Card>
 </Cards>

@@ -1,0 +1,15 @@
+{
+  "title": "Kijko Frontend",
+  "description": "Comprehensive wiki for the Kijko Docs platform — Express + React + Fumadocs",
+  "root": true,
+  "pages": [
+    "index",
+    "architecture",
+    "quickstart",
+    "api-reference",
+    "configuration",
+    "deployment",
+    "wiki-pipeline",
+    "contributing"
+  ]
+}

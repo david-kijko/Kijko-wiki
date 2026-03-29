@@ -1,0 +1,244 @@
+---
+title: Core Concepts
+description: "Progressive disclosure, durable execution, hive mind intelligence, and the agent pantheon that power Panopticon"
+icon: BookOpen
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion'
+
+Panopticon introduces several concepts that differ from traditional MCP setups. Understanding these concepts is essential before working with the system, because every configuration choice and operational pattern traces back to one of these core ideas.
+
+## Progressive Disclosure
+
+The fundamental problem Panopticon solves is context token bloat. A typical MCP-equipped agent might have access to 15 MCP servers exposing 200+ tools. Dumping all those tool schemas into the agent's context window costs ~50,000 tokens and degrades response quality because the model spends attention capacity parsing irrelevant schema definitions.
+
+Panopticon replaces this dump-everything approach with a three-tier progressive disclosure model:
+
+<Cards>
+  <Card title="Tier 1: Browse">
+    Agent sends a natural language query. Gemini watches the HyperVisa video catalog and returns top-3 matches with confidence scores. Cost: **~500 tokens**. The agent now knows which tools exist without loading any schemas.
+  </Card>
+  <Card title="Tier 2: Detail">
+    Agent requests the full JSON schema for a specific tool. This provides complete parameter definitions, types, descriptions, and required fields. Cost: **~2,000 tokens**. Only loaded for the tool the agent actually needs.
+  </Card>
+  <Card title="Tier 3: Execute">
+    Agent sends the tool call with parameters. Panopticon routes through Temporal for durable execution, captures a trace for the RL pipeline, and returns the result. Cost: **variable** (depends on tool output).
+  </Card>
+</Cards>
+
+The key insight is that an agent making 5 tool calls in a session loads approximately 5 x 2,500 = 12,500 tokens of schema data, compared to the ~50,000 tokens that would be loaded by dumping all schemas upfront. That is a **~75-98% reduction** depending on the number of available tools vs. tools actually used.
+
+### HyperVisa Video Encoding
+
+The video encoding step is what makes Tier 1 work. Tool schemas are formatted as structured text with semantic color markers (Chromacode) and rendered to a 1fps MP4 video using HyperVisa's proven renderer:
+
+- **Font**: Tamzen bitmap font (high legibility at low resolution)
+- **Resolution**: 1920x1080
+- **Frame rate**: 1 fps (one frame per ~80 lines of text)
+- **Palette**: Chromacode semantic markers -- blue for definitions, red for required params, green for defaults, gray for optional
+
+The video is uploaded to the Gemini File API, where it persists until explicitly deleted. When an agent calls `browse_tools`, Gemini performs visual search against the video -- it literally "watches" the catalog and identifies relevant tools. This is more token-efficient than any text-based search because the video is processed as a media input, not as text tokens.
+
+### Smart Resolution
+
+When an agent uses `smart_execute` (natural language intent), Panopticon chains all three tiers automatically:
+
+1. **Tier 1**: Browse to find the best tool match
+2. **Tier 2**: Fetch the full schema for the top match
+3. **Tier 3**: Ask Gemini to fill in the parameters from the intent, then execute
+
+This means an agent can say "fetch the content of example.com" and Panopticon will resolve this to `firecrawl.scrape` with `{url: "https://example.com"}`, execute it, and return the content -- all in a single call.
+
+## Durable Execution
+
+Every tool call in Panopticon runs inside a Temporal workflow. This provides guarantees that traditional subprocess-based MCP execution cannot offer.
+
+### What Temporal Guarantees
+
+<Tabs items={["Worker Crash", "Server Crash", "Network Partition"]}>
+  <Tab value="Worker Crash">
+    If the Panopticon worker process crashes mid-execution, Temporal detects the missed heartbeat and schedules the workflow on another worker (or the same worker when it restarts). All completed activities are replayed from the event history -- they are NOT re-executed. The workflow resumes from the last incomplete activity.
+
+    **Practical impact**: A tool call that was 80% complete does not start over from scratch. The MCP server connection, initialization, and any prior steps are already recorded. Only the final execution step needs to run.
+  </Tab>
+  <Tab value="Server Crash">
+    If a downstream MCP server crashes during a tool call, the `ToolExecutionWorkflow` detects the failure, calls `restart_mcp_server` to respawn the process, waits 2 seconds for stabilization, and retries the tool call once.
+
+    **Practical impact**: Transient MCP server failures are invisible to the calling agent. The agent receives the result as if nothing happened, with an extra `retried: true` flag in the response.
+  </Tab>
+  <Tab value="Network Partition">
+    Temporal's gRPC frontend (`localhost:7233`) handles network partitions between the worker and the Temporal server. If the connection drops, the worker reconnects automatically. Workflows in progress are not lost -- they simply wait for a worker to pick them up.
+
+    **Practical impact**: You can restart Docker, reboot the machine, or experience a network blip without losing any in-flight tool calls.
+  </Tab>
+</Tabs>
+
+### Compensating Transactions
+
+The `AgentTaskWorkflow` supports multi-step execution with compensating rollback. Each step can define a `compensate` action that runs in reverse order if a later step fails:
+
+```json
+{
+  "steps": [
+    {
+      "server": "github", "tool": "create_branch",
+      "params": {"repo": "my-repo", "branch": "feature-x"},
+      "compensate": {"tool": "delete_branch", "params": {"branch": "feature-x"}}
+    },
+    {
+      "server": "github", "tool": "create_pull_request",
+      "params": {"repo": "my-repo", "branch": "feature-x", "title": "Feature X"}
+    }
+  ]
+}
+```
+
+If `create_pull_request` fails, the workflow automatically runs `delete_branch` to clean up. This is the Saga pattern implemented through Temporal activities.
+
+## Process Management
+
+MCP servers use stdio for their transport protocol -- JSON-RPC messages flow through stdin/stdout pipes. This transport has a critical limitation: **it is not concurrent-safe**. Sending two JSON-RPC requests simultaneously on the same pipe corrupts the stream and causes parsing errors.
+
+### MCPProcessManager
+
+Panopticon solves this with the `MCPProcessManager`, a worker-level singleton that owns ALL downstream MCP server subprocesses:
+
+- **Per-server `asyncio.Lock`** -- Every call to a specific MCP server acquires its dedicated lock. Multiple agents can call different servers concurrently, but calls to the same server are serialized.
+- **Tracked subprocess handles** -- Every process is tracked via `asyncio.subprocess.Process`. No fire-and-forget `Popen`. When a process dies, Panopticon knows immediately because `proc.returncode` becomes non-None.
+- **Error classification** -- Transport errors (broken pipe, EOF, connection reset) trigger a restart. Application errors (tool returned an error) are passed through without restarting the server.
+
+### Connection Lifecycle
+
+```
+Agent calls execute_tool("firecrawl", "scrape", {...})
+  --> MCPProcessManager.call_tool("firecrawl", "scrape", {...})
+    --> Acquire asyncio.Lock for "firecrawl"
+      --> get_or_create("firecrawl")
+        --> Server not running? Start subprocess
+        --> Send JSON-RPC "initialize" + "notifications/initialized"
+      --> Send JSON-RPC "tools/call" with params
+      --> Read response line from stdout
+      --> Parse JSON, return result
+    --> Release lock
+```
+
+## Gemini Key Pool
+
+Panopticon makes extensive use of the Gemini API -- for catalog upload, visual search, parameter filling, and smart resolution. To avoid rate limiting, all Gemini calls share a pooled key management system.
+
+### Key Resolution Order
+
+1. `GEMINI_API_KEYS` environment variable (comma-separated)
+2. `VERTEX_API_KEYS` environment variable (auto-prefixed with `vertex:`)
+3. `GEMINI_API_KEY` single key fallback
+
+### Pool Behavior
+
+| Situation | Pool Response |
+|-----------|--------------|
+| Normal operation | Round-robin across available keys |
+| Key hits RPM limit (default 10/min) | Proactive rotation to next key |
+| Key returns 429 | 60-second cooldown, rotate to next |
+| Key returns 401/403 | Permanently disabled, rotate |
+| All keys rate-limited | `AllKeysExhaustedError` with earliest-available time |
+
+The `GeminiPool.with_failover(fn)` method wraps any Gemini operation with automatic key rotation:
+
+```python
+# This call will try each key in the pool until one succeeds
+result = pool.with_failover(
+    lambda client: client.models.generate_content(
+        model=DEFAULT_MODEL,
+        contents=[file_ref, prompt],
+    )
+)
+```
+
+## Intelligence Layer
+
+Panopticon does not just execute tools -- it learns from every execution to improve future tool selections.
+
+### Execution Traces
+
+Every tool call generates a trace that captures:
+- What tool was called and with what parameters (sanitized -- secrets are masked)
+- Whether it succeeded or failed
+- How long it took
+- What reward signal was computed
+
+Traces are written to both an in-memory buffer (for Temporal archiving) and local JSONL files at `~/.cortex/lightning/traces/panopticon-YYYY-MM-DD.jsonl`.
+
+### Agent Lightning Training
+
+The RL training pipeline converts traces into rollouts (grouped by agent session) and feeds them to Agent Lightning. Training runs daily via cron at 5 AM, collecting traces since the last training run.
+
+```
+Traces --> Group by agent_context --> Compute aggregate rewards
+  --> Save rollouts --> Update training state
+```
+
+### Hive Mind Promotion
+
+The hive mind is Panopticon's collective intelligence system. It tracks tool-query patterns and promotes them when they prove reliable:
+
+1. **Observation** -- Each successful tool selection is recorded with its query category
+2. **Threshold** -- When the same tool succeeds 3+ times for similar queries, it crosses the promotion threshold
+3. **Promotion** -- The pattern is written to the `panopticon-hive` Graphiti group and the local promotions file
+4. **Sharing** -- Other Panopticon instances (or future sessions) query the hive mind when resolving new queries
+
+<Callout type="info">
+The promotion threshold of 3 is deliberately low to enable rapid learning. In production with high tool call volume, consider increasing this via the hive mind configuration to reduce noise.
+</Callout>
+
+### Episodic Memory
+
+Beyond the hive mind's pattern matching, episodic memory records complete execution episodes:
+- What happened (natural language description)
+- What tools were involved
+- What the outcome was (success, failure, partial)
+- Full context dict (parameters, agent state)
+
+Episodic memory tries Graphiti (FalkorDB knowledge graph) first and falls back to local JSONL at `~/.panopticon/memory/episodic.jsonl`. The `recall()` function searches both stores for relevant past experiences.
+
+## The Agent Pantheon
+
+Panopticon integrates with three specialized agents that form the Kijko Pantheon:
+
+| Agent | Role | Integration |
+|-------|------|-------------|
+| **Oracle** | Type 2 governance -- coherence, taste, architectural judgment | Zulip consultation via `panopticon/agents/oracle_consult.py` |
+| **Smith** | Sidecar sentinel -- guardrails, context engineering, QA | Enforcement matrix via `panopticon/agents/steering.py` |
+| **Trinity** | Optimizer -- APO pipeline, reward signals | Hint consumption from `~/.cortex/trinity/` |
+
+### Smith's Enforcement Matrix
+
+Smith's guardrails apply to every tool call that routes through Panopticon:
+
+- **Always blocked**: `rm_rf`, `drop_database`, `format_disk` -- regardless of enforcement level
+- **HIGH only**: `git_push_force`, `delete_branch`, `modify_permissions`
+- **Steering context**: Non-blocking guidance injected into tool calls (e.g., "verify file exists before writing")
+- **Result scanning**: At HIGH/MEDIUM levels, results are scanned for leaked secrets (`api_key=`, `password=`, `token=`)
+
+## The Bottom Line
+
+<Callout type="info" title="Key Takeaways">
+  - Progressive disclosure reduces context token usage by ~98% compared to dumping all schemas
+  - Every tool call is durable -- worker crashes, server crashes, and network partitions are handled automatically
+  - The MCPProcessManager serializes calls per-server because MCP stdio is not concurrent-safe
+  - The hive mind promotes successful tool patterns after 3+ successes, enabling collective learning
+  - Smith's guardrails enforce safety at every enforcement level, from pass-through to full validation
+</Callout>
+
+## Next Steps
+
+<Cards>
+  <Card title="Architecture" href="/docs/panopticon/architecture">
+    See how these concepts map to the six-layer architecture with source code references.
+  </Card>
+  <Card title="Configuration" href="/docs/panopticon/configuration">
+    Configure the key pool, guardrail levels, memory paths, and Temporal connection.
+  </Card>
+</Cards>

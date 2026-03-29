@@ -1,0 +1,102 @@
+---
+title: "Baton Exchange"
+description: "Context relay protocol for Claude Code sessions. Compressed baton payloads carry purpose, state, and hard-won lessons across context windows."
+icon: "ArrowRightLeft"
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Step, Steps } from 'fumadocs-ui/components/steps'
+
+Baton Exchange is a context relay protocol that injects compressed session state into every Claude Code session. When a context window fills up and compacts, the baton captures what matters -- your north-star objective, where you left off, and every gotcha the agent learned the hard way -- then passes it to the next session in under 400 tokens.
+
+The result: Claude Code sessions that resume seamlessly instead of starting cold.
+
+```
+Opus 4.6 | zap refactor t37 warn3 Build a self-sustaining context-com... @2m | my-project full5/empty5 55% ->80%
+-- session learnings --
+  play Refactoring auth handler
+  warn Auth expires every 25min; use refresh tokens
+  warn JSON mode requires response_mime_type param
+  check Chose HyperVisa for compression
+```
+
+## At a Glance
+
+<Cards>
+  <Card title="Three-Pillar Batons" href="/docs/baton-exchange/concepts">
+    Every baton carries Purpose (north star), Persistence (session state), and Steering (lessons learned) in a single compressed JSON payload.
+  </Card>
+  <Card title="Automatic Relay Loop" href="/docs/baton-exchange/architecture">
+    SessionStart hook injects the baton. PreCompact hook writes the session back. The loop is fully automatic -- no manual handoffs.
+  </Card>
+  <Card title="Gemini-Powered Synthesis" href="/docs/baton-exchange/protocol-spec">
+    HyperVisa queries cxdb timeline and NotebookLM knowledge, then uses Gemini 3 Flash to compress everything into under 400 tokens.
+  </Card>
+  <Card title="cxdb Turn DAG" href="/docs/baton-exchange/api-reference">
+    Sessions are stored as turns in a project-scoped cxdb context -- a persistent DAG with O(1) forking that survives process restarts.
+  </Card>
+  <Card title="Live Statusline" href="/docs/baton-exchange/configuration">
+    A real-time terminal footer shows baton state, turn depth, gotcha count, context usage, and dual progress bars for Claude and HyperVisa.
+  </Card>
+  <Card title="One-Command Install" href="/docs/baton-exchange/quickstart">
+    Clone the repo, run install.sh, and batons activate on your next Claude Code session. Hooks, statusline, and all wiring configured automatically.
+  </Card>
+</Cards>
+
+## How It Works
+
+<Steps>
+  <Step>
+    ### Session Starts
+    The `baton_hook.py` SessionStart hook fires, detects the project from git remote, and calls the HyperVisa `/baton` API to synthesize a compressed baton from the project's cxdb timeline and NotebookLM knowledge.
+  </Step>
+  <Step>
+    ### Baton Injected
+    The baton JSON is formatted as Markdown and injected into the session via the `additionalContext` field. The agent immediately knows what it is working toward, what is done, what is next, and what to avoid.
+  </Step>
+  <Step>
+    ### Session Runs
+    The statusline reads the cached baton and renders turn depth, gotcha count, mode badge, and dual context bars in the terminal footer throughout the session.
+  </Step>
+  <Step>
+    ### Context Compacts
+    Before auto-compaction, the `compact_hook.py` PreCompact hook ingests the session into Cortex DuckDB, syncs a summary to NotebookLM, and appends a structured turn to the project's cxdb context.
+  </Step>
+  <Step>
+    ### Next Session Resumes
+    The loop starts again at Step 1 with an enriched timeline. Each session builds on the last. Nothing is lost.
+  </Step>
+</Steps>
+
+## The Problem It Solves
+
+Claude Code sessions have finite context windows. When the window fills, the context compacts and prior knowledge is lost. Without Baton Exchange:
+
+- The agent forgets what it was building and why
+- Hard-won debugging lessons vanish -- the same mistakes repeat
+- In-progress work has no continuity marker
+- Architectural decisions must be re-explained every session
+
+With Baton Exchange, every new session starts with a compressed summary of all prior sessions. The agent picks up exactly where it left off, armed with the gotchas and decisions from every previous context window.
+
+<Callout type="info" title="Part of the Oracle-Cortex ecosystem">
+  Baton Exchange vendors code from [Oracle-Cortex](https://github.com/Anansitrading/Oracle-Cortex) (cognitive architecture) and [HyperVisa](https://github.com/Anansitrading/hypervisa-cli) (Gemini context engine). It connects to [cxdb](https://github.com/Anansitrading/cxdb) for persistent turn storage.
+</Callout>
+
+## Next Steps
+
+<Cards>
+  <Card title="Quickstart" href="/docs/baton-exchange/quickstart">
+    Install Baton Exchange and activate batons on your next Claude Code session.
+  </Card>
+  <Card title="Core Concepts" href="/docs/baton-exchange/concepts">
+    Understand the three-pillar baton model, the relay loop, and the project context registry.
+  </Card>
+  <Card title="Architecture" href="/docs/baton-exchange/architecture">
+    Deep-dive into the component topology, data flow, and integration points.
+  </Card>
+  <Card title="Protocol Specification" href="/docs/baton-exchange/protocol-spec">
+    The formal baton schema, synthesis prompt, cxdb wire protocol, and compression rules.
+  </Card>
+</Cards>

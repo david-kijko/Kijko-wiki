@@ -1,0 +1,264 @@
+---
+title: Quickstart
+description: "Run the Panopticon 2.0 pipeline locally -- setup, execution, monitoring, and verification"
+icon: Rocket
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Step, Steps } from 'fumadocs-ui/components/steps'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+
+This guide walks through running the Panopticon 2.0 pipeline on your local machine. By the end, you will have executed a full pipeline run that audits a repository, generates an information architecture, produces MDX pages, validates them, and publishes the result.
+
+## Prerequisites
+
+- **Node.js 22+** and **pnpm** installed
+- The Kijko_Docs monorepo checked out locally
+- A target repository to document (can be the Kijko_Docs repo itself)
+
+Optional (for enhanced output):
+- **Python 3.12+** and **repomix** for Phase 0 forensic ingest
+- **Docker** for snippet verification runtimes
+- MCP servers running for CodeGraph (`localhost:3100`), CGC (`localhost:3101`), or NotebookLM (`localhost:11300`)
+
+<Callout type="info">
+The pipeline works without any optional dependencies. MCP tools, forensic ingest, and Docker-based verification are all gracefully degraded when unavailable. Your first run will likely skip Phase 0 and use file-tree scanning fallbacks -- that is expected.
+</Callout>
+
+## Setup
+
+<Steps>
+  <Step>
+    ### Install dependencies
+
+    From the Kijko_Docs monorepo root:
+
+    ```bash
+    pnpm install
+    ```
+  </Step>
+
+  <Step>
+    ### Build the agent package
+
+    The pipeline code lives in the `apps/agent` workspace:
+
+    ```bash
+    pnpm --filter agent build
+    ```
+  </Step>
+
+  <Step>
+    ### Set environment variables (optional)
+
+    If you have MCP servers running, configure their endpoints:
+
+    ```bash
+    export CODEGRAPH_MCP_URL="http://localhost:3100"
+    export CGC_MCP_URL="http://localhost:3101"
+    export NOTEBOOK_BASE_URL="http://localhost:11300"
+    export NOTEBOOK_API_KEY="your-api-key"       # if required
+    export NOTEBOOK_ID="your-notebook-id"         # default notebook
+    ```
+
+    Skip this step to run with fallback-only mode.
+  </Step>
+</Steps>
+
+## Running the Pipeline
+
+### Via the Mastra Tool Interface
+
+The pipeline exposes a `run-pipeline` Mastra tool defined at `apps/agent/src/mastra/tools/pipeline-tools.ts`. This is the primary invocation method:
+
+```typescript
+import { PipelineOrchestrator } from "./lib/pipeline/orchestrator";
+import type { PipelineConfig } from "./lib/pipeline/types";
+
+// Create the orchestrator
+const orchestrator = new PipelineOrchestrator({
+  listExistingPages: () => db.listPages().map(p => p.slug),
+  mastraAgent: wikiAgent,  // Optional: Mastra agent for LLM generation
+});
+
+// Configure the run
+const config: PipelineConfig = {
+  repoSlug: "kijko-docs",
+  repoPath: "/home/david/Projects/Kijko_Docs",
+  triggerType: "full",
+};
+
+// Execute
+const state = await orchestrator.execute(config);
+
+console.log(`Pipeline ${state.id}: ${state.status}`);
+console.log(`Phases completed: ${state.phases.filter(p => p.status === "complete").length}`);
+```
+
+### Trigger Type Examples
+
+<Tabs items={["Full Run", "Preview", "Drift Check", "Single Page"]}>
+  <Tab value="Full Run">
+    Generate a complete wiki from scratch:
+
+    ```typescript
+    const config: PipelineConfig = {
+      repoSlug: "my-repo",
+      repoPath: "/path/to/my-repo",
+      triggerType: "full",
+    };
+
+    const state = await orchestrator.execute(config);
+    // Runs: Audit -> IA -> Writer -> Verifier -> QA -> Monitor -> Publish
+    ```
+  </Tab>
+  <Tab value="Preview">
+    Generate pages without writing to disk (useful for content review):
+
+    ```typescript
+    const config: PipelineConfig = {
+      repoSlug: "my-repo",
+      repoPath: "/path/to/my-repo",
+      triggerType: "preview",
+    };
+
+    const state = await orchestrator.execute(config);
+    // Runs: Audit -> IA -> Writer -> Verifier -> QA
+    // Skips: Monitor, Publish (no files written)
+    ```
+
+    Access the generated pages from the Writer artifacts:
+
+    ```typescript
+    const writerPhase = state.phases.find(p => p.name === "writer");
+    const pages = writerPhase?.agentResult?.artifacts?.generatedPages;
+    // pages[].mdxContent contains the generated MDX
+    ```
+  </Tab>
+  <Tab value="Drift Check">
+    Quick documentation freshness scan (no content generation):
+
+    ```typescript
+    const config: PipelineConfig = {
+      repoSlug: "my-repo",
+      repoPath: "/path/to/my-repo",
+      triggerType: "drift_check",
+    };
+
+    const state = await orchestrator.execute(config);
+    // Runs: Audit -> Monitor
+    // Returns: gap report + freshness scores
+    ```
+  </Tab>
+  <Tab value="Single Page">
+    Generate a specific page without a full audit:
+
+    ```typescript
+    const config: PipelineConfig = {
+      repoSlug: "my-repo",
+      repoPath: "/path/to/my-repo",
+      triggerType: "single_page",
+      targetSlugs: ["concepts/pipeline-orchestrator"],
+    };
+
+    const state = await orchestrator.execute(config);
+    // Runs: IA -> Writer -> Verifier -> QA -> Publish
+    // Skips: Audit, Monitor
+    ```
+  </Tab>
+</Tabs>
+
+## Verifying Results
+
+### Check Pipeline State
+
+After execution, inspect the pipeline state for phase-level details:
+
+```typescript
+// Overall status
+console.log(`Status: ${state.status}`);
+console.log(`Duration: ${Date.now() - new Date(state.startedAt).getTime()}ms`);
+
+// Per-phase results
+for (const phase of state.phases) {
+  const duration = phase.agentResult?.metrics?.durationMs ?? "skipped";
+  console.log(`  ${phase.name}: ${phase.status} (${duration}ms)`);
+  if (phase.error) console.log(`    Error: ${phase.error}`);
+}
+```
+
+### Check Audit Coverage
+
+```typescript
+const auditPhase = state.phases.find(p => p.name === "audit");
+const audit = auditPhase?.agentResult?.artifacts;
+console.log(`Coverage: ${audit.coverageScore * 100}%`);
+console.log(`Gaps found: ${audit.gaps.length}`);
+console.log(`Stale pages: ${audit.stalePages.length}`);
+```
+
+### Check QA Score
+
+```typescript
+const qaPhase = state.phases.find(p => p.name === "qa");
+const qa = qaPhase?.agentResult?.artifacts;
+console.log(`QA Score: ${qa.overallScore * 100}%`);
+console.log(`Broken links: ${qa.brokenLinks.length}`);
+console.log(`Heading issues: ${qa.headingIssues.length}`);
+console.log(`Resolved placeholders: ${qa.resolvedPlaceholders.length}`);
+```
+
+### Check Published Files
+
+```typescript
+const publishPhase = state.phases.find(p => p.name === "publish");
+const pub = publishPhase?.agentResult?.artifacts;
+console.log(`Files written: ${pub.writtenFiles.length}`);
+console.log(`Nav configs updated: ${pub.updatedNavConfigs.length}`);
+console.log(`Saved to DB: ${pub.savedToDb}`);
+```
+
+## Resuming a Failed Run
+
+If a pipeline run fails mid-execution, you can resume from the failure point:
+
+```typescript
+// Original run failed at the Writer phase
+const failedState = await orchestrator.execute(config);
+// failedState.status === "failed"
+// failedState.phases[2].status === "failed" (writer)
+
+// Resume from the writer phase
+const resumedState = await orchestrator.resume(failedState.id, config);
+// Skips audit (complete), ia (complete)
+// Re-runs writer, verifier, qa, monitor, publish
+```
+
+## Common Issues
+
+<Callout type="warn">
+**"Audit phase results not available"** -- The IA agent requires audit results. If you are using `triggerType: "single_page"` (which skips audit), the IA agent needs to work from the existing page context. Ensure `listExistingPages` returns the current page inventory.
+</Callout>
+
+<Callout type="warn">
+**"Writer phase produced no pages"** -- The Publish agent fails if there are no pages to write. This usually means the IA agent found no gaps to fill. Check the audit artifacts for `coverageScore` -- if it is `1.0`, the repo is fully documented and no new pages are needed.
+</Callout>
+
+<Callout type="info">
+**"Circuit breaker OPEN"** -- An MCP service failed 3 times consecutively. The pipeline continues with fallback behavior. The circuit breaker will auto-reset after 60 seconds (120 seconds for NotebookLM). Check that the MCP server is running at the configured URL.
+</Callout>
+
+## Next Steps
+
+<Cards>
+  <Card title="Configuration" href="/docs/panopticon-2.0/configuration">
+    All trigger types, environment variables, and skip-phase rules explained in detail.
+  </Card>
+  <Card title="Architecture" href="/docs/panopticon-2.0/architecture">
+    Understand the full execution model, including Phase 0 and the context relay pattern.
+  </Card>
+  <Card title="API Reference" href="/docs/panopticon-2.0/api-reference">
+    Complete type definitions for working with pipeline state and agent artifacts.
+  </Card>
+</Cards>

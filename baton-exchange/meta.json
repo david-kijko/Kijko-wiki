@@ -1,0 +1,16 @@
+{
+  "title": "Baton Exchange",
+  "icon": "ArrowRightLeft",
+  "root": true,
+  "defaultOpen": true,
+  "pages": [
+    "index",
+    "concepts",
+    "quickstart",
+    "architecture",
+    "protocol-spec",
+    "api-reference",
+    "configuration",
+    "baton-exchange"
+  ]
+}

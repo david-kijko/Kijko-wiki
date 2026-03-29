@@ -1,0 +1,635 @@
+---
+title: "API Reference"
+description: "Complete Python API reference for CxdbClient, baton relay functions, the synthesis engine, learnings database, and statusline."
+icon: "Code"
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion'
+import { TypeTable } from 'fumadocs-ui/components/type-table'
+
+Complete API reference for all Baton Exchange modules. Organized by component: cxdb client, baton relay, synthesis engine, learnings database, NotebookLM client, and the HyperVisa baton API.
+
+## CxdbClient
+
+`cortex/cxdb_client.py` -- Python client for the cxdb conversation branching server. Speaks the binary protocol (port 9009) for writes and HTTP API (port 9010) for reads.
+
+### Constructor
+
+```python title="cortex/cxdb_client.py"
+class CxdbClient:
+    def __init__(
+        self,
+        binary_host: str = "127.0.0.1",
+        binary_port: int = 9009,
+        http_host: str = "127.0.0.1",
+        http_port: int = 9010,
+        client_tag: str = "oracle-cortex-py",
+        timeout: float = 30.0,
+    )
+```
+
+<TypeTable
+  type={{
+    binary_host: {
+      type: 'str',
+      default: '"127.0.0.1"',
+      description: 'cxdb binary protocol host.',
+    },
+    binary_port: {
+      type: 'int',
+      default: '9009',
+      description: 'cxdb binary protocol port.',
+    },
+    http_host: {
+      type: 'str',
+      default: '"127.0.0.1"',
+      description: 'cxdb HTTP API host.',
+    },
+    http_port: {
+      type: 'int',
+      default: '9010',
+      description: 'cxdb HTTP API port.',
+    },
+    client_tag: {
+      type: 'str',
+      default: '"oracle-cortex-py"',
+      description: 'Client identifier sent in the handshake. Used for server-side auditing.',
+    },
+    timeout: {
+      type: 'float',
+      default: '30.0',
+      description: 'Socket and HTTP timeout in seconds.',
+    },
+  }}
+/>
+
+Supports context manager protocol:
+
+```python
+with CxdbClient(client_tag="my-app") as client:
+    ctx = client.create_context()
+    client.append_turn(ctx.context_id, "user", "Hello!")
+```
+
+### Write Operations (Binary Protocol)
+
+#### `create_context(base_turn_id=0) -> ContextHead`
+
+Create a new empty context (conversation branch).
+
+```python
+client = CxdbClient()
+ctx = client.create_context()
+print(f"Context ID: {ctx.context_id}, Head: {ctx.head_turn_id}")
+```
+
+<TypeTable
+  type={{
+    base_turn_id: {
+      type: 'int',
+      default: '0',
+      description: 'Base turn to branch from. 0 creates a fresh context.',
+    },
+  }}
+/>
+
+Returns `ContextHead(context_id, head_turn_id, head_depth)`.
+
+#### `fork(turn_id) -> ContextHead`
+
+Fork a new context from an existing turn. O(1) operation -- only the branch point is recorded; no data is copied.
+
+```python
+# Fork from turn 5 to try a different approach
+fork_ctx = client.fork(turn_id=5)
+client.append_turn(fork_ctx.context_id, "assistant", "Different response!")
+```
+
+Use cases:
+- **A/B testing**: Fork at a decision point, try different prompts
+- **Rollback**: Fork from before a mistake, continue differently
+- **Exploration**: Try multiple approaches from the same starting point
+
+#### `append_turn(context_id, role, content, ...) -> TurnRecord`
+
+Append a conversation turn to a context.
+
+```python
+turn = client.append_turn(
+    context_id=42,
+    role="system",
+    content="Session compacted. Auth handler refactored.",
+    metadata={
+        "event": "compact",
+        "session_id": "abc123",
+        "gotchas": '["Redis needs decode_responses=True"]',
+    },
+)
+print(f"Turn {turn.turn_id} at depth {turn.depth}")
+```
+
+<TypeTable
+  type={{
+    context_id: {
+      type: 'int',
+      description: 'Target context ID.',
+      required: true,
+    },
+    role: {
+      type: 'str',
+      description: '"user", "assistant", "system", or "tool".',
+      required: true,
+    },
+    content: {
+      type: 'str',
+      description: 'Message content.',
+      required: true,
+    },
+    parent_turn_id: {
+      type: 'int',
+      default: '0',
+      description: '0 = use current head, or specify a turn ID.',
+    },
+    type_id: {
+      type: 'str',
+      default: '"com.oracle.conversation.Turn"',
+      description: 'Type registry identifier.',
+    },
+    type_version: {
+      type: 'int',
+      default: '1',
+      description: 'Type version.',
+    },
+    metadata: {
+      type: 'dict | None',
+      default: 'None',
+      description: 'Optional metadata dict (event, session_id, gotchas, decisions, etc.).',
+    },
+    idempotency_key: {
+      type: 'str',
+      default: '""',
+      description: 'Key for safe retries. Empty string = no idempotency.',
+    },
+  }}
+/>
+
+Returns `TurnRecord` with `turn_id`, `depth`, `content_hash`, and the raw `payload`.
+
+#### `append_raw(context_id, payload, ...) -> TurnRecord`
+
+Append a raw msgpack payload as a turn. Use when you need full control over the payload encoding.
+
+```python
+import msgpack
+payload = msgpack.packb({1: "system", 2: "raw content", 3: 1711900000000})
+turn = client.append_raw(context_id=42, payload=payload)
+```
+
+#### `get_head(context_id) -> ContextHead`
+
+Get the current head (latest turn) of a context.
+
+```python
+head = client.get_head(context_id=42)
+print(f"Head turn: {head.head_turn_id}, depth: {head.head_depth}")
+```
+
+#### `get_last(context_id, limit=64, include_payload=True) -> list[TurnRecord]`
+
+Get the last N turns from a context via binary protocol.
+
+```python
+turns = client.get_last(context_id=42, limit=10)
+for turn in turns:
+    data = turn.data  # Decodes msgpack payload
+    print(f"Turn {turn.turn_id}: {data[1]} - {data[2][:50]}")
+```
+
+### Read Operations (HTTP API)
+
+#### `list_contexts(limit=20, tag=None) -> list[dict]`
+
+List all contexts via HTTP API.
+
+```python
+contexts = client.list_contexts(limit=50)
+for ctx in contexts:
+    print(f"Context {ctx['id']}: {ctx.get('tag', 'untagged')}")
+```
+
+#### `get_turns_typed(context_id, limit=64, view="typed") -> dict`
+
+Get turns with typed JSON projection via HTTP API.
+
+```python
+result = client.get_turns_typed(context_id=42, limit=10)
+for turn in result.get("turns", []):
+    print(f"{turn['role']}: {turn['content'][:50]}")
+```
+
+#### `health() -> bool`
+
+Check if cxdb server is reachable.
+
+```python
+if client.health():
+    print("cxdb is running")
+```
+
+#### `publish_type_bundle(bundle) -> bool`
+
+Publish a type registry bundle via HTTP PUT. Returns `True` on success (status 201 or 204).
+
+### Convenience Methods
+
+#### `record_session(session_name, turns) -> ContextHead`
+
+Record a complete session as a context with turns.
+
+```python
+head = client.record_session(
+    session_name="auth-refactor",
+    turns=[
+        {"role": "user", "content": "Refactor the auth handler"},
+        {"role": "assistant", "content": "I'll restructure tokens.py..."},
+    ],
+)
+```
+
+#### `fork_and_replay(from_turn_id, new_turns) -> ContextHead`
+
+Fork from a turn and append new turns to the branch. This is the core conversation branching operation.
+
+```python
+# Try a different approach from turn 5
+branch = client.fork_and_replay(
+    from_turn_id=5,
+    new_turns=[
+        {"role": "assistant", "content": "Let me try a different approach..."},
+        {"role": "system", "content": "Using Redis instead of DB table."},
+    ],
+)
+```
+
+### Data Classes
+
+#### `ContextHead`
+
+```python
+@dataclass
+class ContextHead:
+    context_id: int
+    head_turn_id: int
+    head_depth: int
+```
+
+#### `TurnRecord`
+
+```python
+@dataclass
+class TurnRecord:
+    turn_id: int
+    parent_turn_id: int
+    depth: int
+    type_id: str
+    type_version: int
+    encoding: int           # 1 = msgpack
+    compression: int        # 0 = none
+    uncompressed_len: int
+    content_hash: bytes     # 32-byte BLAKE3 hash
+    payload: bytes | None
+
+    @property
+    def data(self) -> dict | None:
+        """Decode msgpack payload to dict. Keys are numeric: {1: role, 2: content, 3: ts, 4: metadata}."""
+```
+
+#### `CxdbError`
+
+```python
+@dataclass
+class CxdbError(Exception):
+    code: int
+    detail: str
+```
+
+## Baton Relay Module
+
+`cortex/baton.py` -- Project context manager. Maintains one cxdb context per project directory.
+
+### `ensure_project_context(project_name, cwd) -> int`
+
+Get or create a cxdb context for a project. Returns the `context_id`. On first call for a project, creates a new cxdb context and registers it.
+
+```python
+from cortex.baton import ensure_project_context
+context_id = ensure_project_context("my-auth-service", "/home/user/Projects/my-auth-service")
+```
+
+### `append_session_turn(project_name, cwd, session_id, summary, ...) -> int`
+
+Append a structured turn to the project's cxdb context. Returns the new `turn_id`.
+
+```python
+from cortex.baton import append_session_turn
+
+turn_id = append_session_turn(
+    project_name="my-auth-service",
+    cwd="/home/user/Projects/my-auth-service",
+    session_id="abc123-def456",
+    summary="Refactored auth handler. Added refresh token rotation.",
+    event_type="compact",
+    gotchas=["Redis needs decode_responses=True"],
+    decisions=["Chose PyJWT over python-jose"],
+    progress={"completed": 3, "total": 7},
+)
+```
+
+<TypeTable
+  type={{
+    project_name: {
+      type: 'str',
+      description: 'Project identifier.',
+      required: true,
+    },
+    cwd: {
+      type: 'str',
+      description: 'Current working directory.',
+      required: true,
+    },
+    session_id: {
+      type: 'str',
+      description: 'Claude Code session UUID.',
+      required: true,
+    },
+    summary: {
+      type: 'str',
+      description: 'Session summary text (turn content).',
+      required: true,
+    },
+    event_type: {
+      type: 'str',
+      default: '"compact"',
+      description: 'Event type: "compact", "session_start", "session_end".',
+    },
+    gotchas: {
+      type: 'list[str] | None',
+      default: 'None',
+      description: 'List of gotchas discovered during the session.',
+    },
+    decisions: {
+      type: 'list[str] | None',
+      default: 'None',
+      description: 'Architectural decisions made.',
+    },
+    progress: {
+      type: 'dict | None',
+      default: 'None',
+      description: 'Progress metrics (e.g., {"completed": 3, "total": 7}).',
+    },
+  }}
+/>
+
+### `get_recent_turns(project_name, limit=10) -> list[dict]`
+
+Read back recent turns from a project's cxdb context.
+
+```python
+from cortex.baton import get_recent_turns
+turns = get_recent_turns("my-auth-service", limit=5)
+for t in turns:
+    print(f"[{t['metadata'].get('event')}] {t['content'][:80]}")
+```
+
+Returns list of dicts with `turn_id`, `role`, `content`, `timestamp`, `metadata`.
+
+### `get_project_context_id(project_name) -> int | None`
+
+Get the cxdb context ID for a project, or `None` if not yet created.
+
+### `get_all_projects() -> dict`
+
+Return the full project registry as a dict.
+
+## Baton Synthesis Engine
+
+`hypervisa/baton.py` -- Gemini-powered baton synthesis. Queries cxdb timeline and NotebookLM, then compresses into a three-pillar baton.
+
+### `synthesize_baton(project_name, session_id=None, cwd=None, compression="normal") -> dict`
+
+Synthesize a baton for the given project. This is the main entry point called by the HyperVisa `/baton` API.
+
+```python
+from hypervisa.baton import synthesize_baton
+
+baton = synthesize_baton(
+    project_name="my-auth-service",
+    session_id="abc123",
+    cwd="/home/user/Projects/my-auth-service",
+    compression="normal",
+)
+print(baton["purpose"])
+print(baton["steering"]["gotchas"])
+```
+
+<TypeTable
+  type={{
+    project_name: {
+      type: 'str',
+      description: 'Project identifier (e.g., "Oracle-Cortex").',
+      required: true,
+    },
+    session_id: {
+      type: 'str | None',
+      default: 'None',
+      description: 'Current session ID for context.',
+    },
+    cwd: {
+      type: 'str | None',
+      default: 'None',
+      description: 'Current working directory.',
+    },
+    compression: {
+      type: '"normal" | "ultra"',
+      default: '"normal"',
+      description: '"normal" reads last 10 turns. "ultra" reads last 5 for near-limit contexts.',
+    },
+  }}
+/>
+
+Returns the full baton dict with `purpose`, `persistence`, `steering`, `dependency_edges`, and `_meta`.
+
+**Fallback behavior**: If Gemini is unreachable or returns invalid JSON, returns a fallback baton extracted from raw cxdb timeline metadata.
+
+## Baton Refresh Module
+
+`cortex/baton_refresh.py` -- Shared baton cache refresh. Called by compact_hook.py and stop_hook.py after cxdb writes.
+
+### `refresh_baton_cache(session_id, cwd, event="compact") -> bool`
+
+Call HyperVisa baton API and refresh all caches plus the learnings DB.
+
+Steps:
+1. Detect project name from `cwd`
+2. Call `POST /api/hypervisa/baton`
+3. Write `baton-{project}.json` and `last-baton.json`
+4. Record to learnings DB
+5. Update `hypervisa-stats.json`
+
+Returns `True` on success.
+
+## Learnings Database
+
+`cortex/learnings_db.py` -- SQLite database accumulating structured learnings across sessions.
+
+### `LearningsDB(db_path=None)`
+
+Constructor. Defaults to `~/.cortex/baton/learnings.db`. Creates tables on first use.
+
+### `record_baton(project, session_id, baton, event="session_start")`
+
+Save a baton snapshot and extract learnings (gotchas, decisions, constraints, progress) into the learnings table.
+
+```python
+from cortex.learnings_db import LearningsDB
+db = LearningsDB()
+db.record_baton("my-project", "abc123", baton, event="compact")
+db.close()
+```
+
+### `get_learnings(project, category=None, limit=20) -> list[dict]`
+
+Query learnings for a project, optionally filtered by category.
+
+```python
+gotchas = db.get_learnings("my-project", category="gotcha")
+all_learnings = db.get_learnings("my-project")
+```
+
+### `get_learning_count(project) -> int`
+
+Get total learnings count for a project. Used by the statusline.
+
+### `get_baton_history(project, limit=10) -> list[dict]`
+
+Get baton snapshot history for a project.
+
+## NotebookLM Client
+
+`cortex/notebooklm_client.py` -- Wrapper for NotebookLM via subprocess into a pipx-installed venv.
+
+<Callout type="info" title="Optional component">
+  NotebookLM is optional. All functions check `is_available()` before attempting operations. When unavailable, baton synthesis proceeds using only cxdb timeline data.
+</Callout>
+
+### `is_available() -> bool`
+
+Check if notebooklm-mcp-server is installed and auth exists.
+
+### `list_notebooks() -> NotebookLMResult`
+
+List all notebooks. Returns `NotebookLMResult(success, data, error)`.
+
+### `add_text_source(notebook_id, text, title="Pasted Text") -> NotebookLMResult`
+
+Add text content as a source to a notebook.
+
+### `query_notebook(notebook_id, query, timeout=120) -> NotebookLMResult`
+
+Query a notebook. Used by the synthesis engine to get project-specific knowledge.
+
+### `get_weekly_em_notebook_id() -> str | None`
+
+Get the current week's Oracle-EM notebook ID from weekly state file.
+
+### `get_project_hivemind_id(cwd) -> str | None`
+
+Get the project hivemind notebook ID from the hivemind registry.
+
+## HyperVisa Baton API
+
+The HyperVisa API endpoint that the SessionStart hook calls.
+
+### `POST /api/hypervisa/baton`
+
+Synthesize a baton for the given project.
+
+**Request:**
+
+```json
+{
+  "project": "my-auth-service",
+  "session_id": "abc123-def456",
+  "cwd": "/home/user/Projects/my-auth-service",
+  "compression": "normal"
+}
+```
+
+**Response (200):**
+
+```json
+{
+  "purpose": "Build authentication system with JWT refresh token rotation",
+  "persistence": { "..." },
+  "steering": { "..." },
+  "dependency_edges": { "..." },
+  "_meta": {
+    "project": "my-auth-service",
+    "generated_at": "2026-02-24T12:00:00",
+    "compression": "normal",
+    "cxdb_turns": 8,
+    "nlm_available": false
+  }
+}
+```
+
+### `GET /api/hypervisa/sessions`
+
+List all HyperVisa sessions. Used by the statusline to cache token stats.
+
+### `GET /api/hypervisa/tiers`
+
+Get tier distribution. Returns `{"distribution": {"T0": 2, "T1": 5, ...}}`.
+
+## Gemini Wrapper
+
+`hypervisa/gemini.py` -- Gemini API wrapper used by the synthesis engine.
+
+### Key Functions
+
+| Function | Description |
+|----------|-------------|
+| `make_client(api_key=None)` | Create a `genai.Client`. Uses `GEMINI_API_KEY` or `GOOGLE_API_KEY` env vars. |
+| `count_tokens(client, model, contents)` | Count tokens for given contents. |
+| `count_text_tokens(client, model, text)` | Count tokens for raw text using the Gemini API (not heuristic). |
+| `query_single(client, model, file_ref, prompt, ...)` | Query Gemini with a single uploaded file + prompt. |
+| `stream_generate(client, model, contents, ...)` | Core streaming generator. Yields `(event_type, data)` tuples. |
+| `extract_telemetry(resp)` | Extract full telemetry from a Gemini response. |
+
+### Constants
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `DEFAULT_MODEL` | `"gemini-3-flash-preview"` | Default Gemini model for all operations |
+| `VIDEO_MIN_THRESHOLD` | `100_000` | Text token count above which video compression kicks in |
+| `SWARM_THRESHOLD` | `2_000_000` | Token budget before swarm mode triggers |
+
+## Next Steps
+
+<Cards>
+  <Card title="Protocol Specification" href="/docs/baton-exchange/protocol-spec">
+    Formal baton schema, cxdb wire protocol, and synthesis prompt.
+  </Card>
+  <Card title="Configuration" href="/docs/baton-exchange/configuration">
+    Environment variables, service ports, and tuning options.
+  </Card>
+  <Card title="Architecture" href="/docs/baton-exchange/architecture">
+    Component topology and system-level data flow.
+  </Card>
+  <Card title="Core Concepts" href="/docs/baton-exchange/concepts">
+    The three-pillar model and the relay loop lifecycle.
+  </Card>
+</Cards>

@@ -1,0 +1,255 @@
+---
+title: "Deployment"
+description: "Deploy HyperVisa 3.0 as a systemd service behind Caddy or nginx with automated Smith trace rotation and Trinity APO scheduling"
+icon: Server
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Step, Steps } from 'fumadocs-ui/components/steps'
+import { TypeTable } from 'fumadocs-ui/components/type-table'
+
+HyperVisa 3.0 runs as a systemd service on port 8042, fronted by a reverse proxy that exposes it at `https://app.kijko.nl/api/hypervisa/`. The deployment includes automated Smith trace rotation and Trinity APO scheduling via systemd timers.
+
+## Quick Install
+
+The included installer handles everything: virtual environment setup, editable install, systemd service, reverse proxy detection, and health check.
+
+```bash title="Terminal"
+sudo ./deploy/install.sh
+```
+
+This will:
+1. Create/update the virtual environment at `.venv/`
+2. Install hypervisa in editable mode
+3. Create HyperVisa 3.0 state directories (`~/.cortex/canon/`, `~/.cortex/smith/traces/`, etc.)
+4. Copy and enable the systemd service
+5. Detect Caddy or nginx and configure the reverse proxy
+6. Run a health check
+
+For service-only install (no proxy configuration):
+
+```bash title="Terminal"
+sudo ./deploy/install.sh --service-only
+```
+
+## Manual Setup
+
+<Steps>
+  <Step>
+    ### Virtual Environment
+
+    ```bash title="Terminal"
+    cd /home/devuser/HyperVisa3.0
+    python3 -m venv .venv
+    .venv/bin/pip install -e .
+    ```
+
+    Verify the installation:
+
+    ```bash title="Terminal"
+    .venv/bin/python -c "from hypervisa.api import app; print('Import OK')"
+    ```
+  </Step>
+
+  <Step>
+    ### State Directories
+
+    Create the directories HyperVisa 3.0 uses for Canon rules, Smith traces, and Trinity rollouts:
+
+    ```bash title="Terminal"
+    mkdir -p ~/.cortex/canon/history
+    mkdir -p ~/.cortex/smith/traces
+    mkdir -p ~/.cortex/lightning/rollouts
+    mkdir -p ~/.cortex/logs
+    ```
+  </Step>
+
+  <Step>
+    ### systemd Service
+
+    The service runs uvicorn with 2 workers on port 8042.
+
+    ```bash title="Terminal"
+    sudo cp deploy/hypervisa-api.service /etc/systemd/system/
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now hypervisa-api
+    ```
+
+    ```ini title="deploy/hypervisa-api.service"
+    [Unit]
+    Description=HyperVisa 3.0 REST API
+    After=network.target
+
+    [Service]
+    Type=simple
+    User=devuser
+    Group=devuser
+    WorkingDirectory=/home/devuser/HyperVisa3.0
+    ExecStart=/home/devuser/HyperVisa3.0/.venv/bin/uvicorn hypervisa.api:app --host 0.0.0.0 --port 8042 --workers 2
+    Restart=always
+    RestartSec=5
+    TimeoutStopSec=300
+
+    [Install]
+    WantedBy=multi-user.target
+    ```
+  </Step>
+
+  <Step>
+    ### Reverse Proxy
+
+    <Tabs items={['Caddy', 'nginx']}>
+      <Tab value="Caddy">
+        Add the HyperVisa proxy snippet to your Caddyfile:
+
+        ```caddy title="/etc/caddy/conf.d/hypervisa-api.conf"
+        @hypervisa {
+            path /api/hypervisa/*
+        }
+
+        handle @hypervisa {
+            uri strip_prefix /api/hypervisa
+            reverse_proxy localhost:8042 {
+                flush_interval -1
+                header_up X-Real-IP {remote_host}
+                header_up X-Forwarded-Proto {scheme}
+                transport http {
+                    read_timeout 300s
+                }
+            }
+        }
+        ```
+
+        Import it in your Caddyfile:
+
+        ```caddy title="/etc/caddy/Caddyfile"
+        app.kijko.nl {
+            import /etc/caddy/conf.d/hypervisa-api.conf
+        }
+        ```
+
+        Reload: `sudo caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile`
+      </Tab>
+      <Tab value="nginx">
+        Add the location block to your server configuration:
+
+        ```nginx title="/etc/nginx/snippets/hypervisa-api.conf"
+        location /api/hypervisa/ {
+            proxy_pass http://127.0.0.1:8042/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_read_timeout 300s;
+            proxy_send_timeout 300s;
+        }
+        ```
+
+        Include in your server block and reload:
+
+        ```bash
+        sudo nginx -t && sudo systemctl reload nginx
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+</Steps>
+
+## URL Mapping
+
+| Proxy Path | Upstream |
+|------------|----------|
+| `GET /api/hypervisa/health` | `GET localhost:8042/health` |
+| `GET /api/hypervisa/sessions` | `GET localhost:8042/sessions` |
+| `POST /api/hypervisa/ingest` | `POST localhost:8042/ingest` |
+| `POST /api/hypervisa/{id}/query` | `POST localhost:8042/{id}/query` |
+
+## Verification
+
+```bash title="Terminal"
+# Direct API
+curl http://localhost:8042/health
+
+# Through proxy
+curl https://app.kijko.nl/api/hypervisa/health
+
+# Service status
+systemctl status hypervisa-api
+
+# Logs
+journalctl -u hypervisa-api -f
+```
+
+## Automated Timers
+
+HyperVisa 3.0 includes two systemd timers for background maintenance.
+
+### Smith Trace Rotation
+
+The rotation script compresses `.jsonl` trace files older than 7 days and deletes compressed traces older than 30 days.
+
+```bash title="Terminal"
+# Install
+sudo cp deploy/hypervisa-smith-rotate /usr/local/bin/
+sudo chmod +x /usr/local/bin/hypervisa-smith-rotate
+sudo cp deploy/hypervisa-smith.timer /etc/systemd/system/
+
+# Enable
+sudo systemctl daemon-reload
+sudo systemctl enable --now hypervisa-smith.timer
+```
+
+The timer runs daily with a 5-minute random delay to avoid thundering herd.
+
+### Trinity APO Scheduler
+
+The Trinity APO runner executes one optimization cycle daily using recent Smith trace data.
+
+```bash title="Terminal"
+# Install
+sudo cp deploy/hypervisa-trinity-apo /usr/local/bin/
+sudo chmod +x /usr/local/bin/hypervisa-trinity-apo
+sudo cp deploy/hypervisa-trinity.timer /etc/systemd/system/
+
+# Enable
+sudo systemctl daemon-reload
+sudo systemctl enable --now hypervisa-trinity.timer
+```
+
+The timer runs daily with a 10-minute random delay. Results are logged to `~/.cortex/logs/trinity-apo-YYYYMMDD.log`.
+
+### Verify Timers
+
+```bash title="Terminal"
+systemctl list-timers hypervisa-*
+```
+
+## Production Checklist
+
+<Callout type="warn" title="Before going to production">
+  - Set `GEMINI_API_KEY` in the systemd service environment or a `.env` file
+  - Ensure `repomix` is installed globally and available on the service user's PATH
+  - Verify disk space for video storage at `~/.hypervisa/videos/`
+  - Set up log rotation for journald or redirect service output
+  - Configure firewall: port 8042 should only be accessible from the reverse proxy
+</Callout>
+
+| Component | Port | Protocol | Notes |
+|-----------|------|----------|-------|
+| HyperVisa API | 8042 | HTTP | Internal only (behind reverse proxy) |
+| Gemini API | 443 | HTTPS | Outbound to `generativelanguage.googleapis.com` |
+| Reverse Proxy | 443 | HTTPS | Public-facing via Caddy/nginx |
+
+<Cards>
+  <Card title="Configuration" href="/docs/hypervisa-3.0/configuration">
+    All environment variables, renderer settings, and Canon rule options.
+  </Card>
+  <Card title="Integrations" href="/docs/hypervisa-3.0/integrations">
+    How HyperVisa connects to other Kijko ecosystem tools.
+  </Card>
+</Cards>

@@ -1,0 +1,165 @@
+name: Wiki Rewrite on Source Repo Change
+
+on:
+  # Triggered via repository_dispatch from source repos
+  repository_dispatch:
+    types:
+      - wiki-rewrite-panopticon
+      - wiki-rewrite-panopticon2
+      - wiki-rewrite-hypervisa
+      - wiki-rewrite-kijko-frontend
+      - wiki-rewrite-baton-exchange
+
+  # Manual trigger for testing
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: 'Which repo wiki to regenerate'
+        required: true
+        type: choice
+        options:
+          - panopticon
+          - panopticon-2.0
+          - hypervisa-3.0
+          - kijko-frontend
+          - baton-exchange
+          - all
+
+  # Scheduled nightly re-index
+  schedule:
+    - cron: '0 3 * * *'  # 3 AM UTC daily
+
+env:
+  WIKI_REPO: david-kijko/Kijko-wiki
+
+jobs:
+  determine-targets:
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.resolve.outputs.targets }}
+    steps:
+      - name: Resolve target wikis
+        id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            case "${{ github.event.action }}" in
+              wiki-rewrite-panopticon)  echo 'targets=["panopticon"]' >> $GITHUB_OUTPUT ;;
+              wiki-rewrite-panopticon2) echo 'targets=["panopticon-2.0"]' >> $GITHUB_OUTPUT ;;
+              wiki-rewrite-hypervisa)   echo 'targets=["hypervisa-3.0"]' >> $GITHUB_OUTPUT ;;
+              wiki-rewrite-kijko-frontend) echo 'targets=["kijko-frontend"]' >> $GITHUB_OUTPUT ;;
+              wiki-rewrite-baton-exchange)  echo 'targets=["baton-exchange"]' >> $GITHUB_OUTPUT ;;
+            esac
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TARGET="${{ github.event.inputs.target_repo }}"
+            if [ "$TARGET" = "all" ]; then
+              echo 'targets=["panopticon","panopticon-2.0","hypervisa-3.0","kijko-frontend","baton-exchange"]' >> $GITHUB_OUTPUT
+            else
+              echo "targets=[\"$TARGET\"]" >> $GITHUB_OUTPUT
+            fi
+          else
+            # Scheduled: regenerate all
+            echo 'targets=["panopticon","panopticon-2.0","hypervisa-3.0","kijko-frontend","baton-exchange"]' >> $GITHUB_OUTPUT
+          fi
+
+  rewrite-wiki:
+    needs: determine-targets
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: ${{ fromJson(needs.determine-targets.outputs.targets) }}
+      max-parallel: 2
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Kijko-wiki
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install repomix
+        run: npm install -g repomix
+
+      - name: Map target to source repo
+        id: map
+        run: |
+          case "${{ matrix.target }}" in
+            panopticon)     echo "source_repo=kijko-ai/panopticon" >> $GITHUB_OUTPUT ;;
+            panopticon-2.0) echo "source_repo=kijko-ai/Panopticon2.0" >> $GITHUB_OUTPUT ;;
+            hypervisa-3.0)  echo "source_repo=kijko-ai/HyperVisa3.0" >> $GITHUB_OUTPUT ;;
+            kijko-frontend) echo "source_repo=david-kijko/Kijko_Docs" >> $GITHUB_OUTPUT ;;
+            baton-exchange) echo "source_repo=kijko-ai/baton-exchange" >> $GITHUB_OUTPUT ;;
+          esac
+
+      - name: Clone source repo
+        run: |
+          gh repo clone ${{ steps.map.outputs.source_repo }} source-repo -- --depth=1
+        env:
+          GH_TOKEN: ${{ secrets.SOURCE_REPO_TOKEN }}
+
+      - name: Generate repomix context
+        run: |
+          cd source-repo
+          repomix --output ../context.xml
+
+      - name: Generate wiki pages via Claude Code
+        run: |
+          npx @anthropic-ai/claude-code --print \
+            --model claude-sonnet-4-6 \
+            "You are a WikiAgent. Analyze the repomix context at ../context.xml and the existing wiki pages in ${{ matrix.target }}/.
+            Generate comprehensive, production-quality Fumadocs MDX wiki pages.
+            Use the style system in _shared/style-system.json and page templates in wiki-research/analysis/.
+            Write all output pages to ${{ matrix.target }}/ and update meta.json.
+            Every page must have real content derived from the source code — no placeholders." \
+            --allowedTools "Read,Write,Edit,Glob,Grep,Bash"
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Validate generated MDX
+        run: |
+          # Basic validation: check all .mdx files have frontmatter
+          for f in ${{ matrix.target }}/*.mdx; do
+            if [ -f "$f" ]; then
+              if ! head -1 "$f" | grep -q "^---"; then
+                echo "ERROR: $f missing frontmatter"
+                exit 1
+              fi
+            fi
+          done
+          echo "All MDX files validated"
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "WikiAgent"
+          git config user.email "wikiagent@kijko.nl"
+          git add "${{ matrix.target }}/"
+          if git diff --cached --quiet; then
+            echo "No changes to commit for ${{ matrix.target }}"
+          else
+            git commit -m "wiki(${{ matrix.target }}): auto-rewrite triggered by source repo change
+
+          Source: ${{ steps.map.outputs.source_repo }}
+          Trigger: ${{ github.event_name }}
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          Co-Authored-By: WikiAgent <wikiagent@kijko.nl>"
+            git push
+          fi
+
+  notify-docs-site:
+    needs: rewrite-wiki
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+      - name: Trigger docs.kijko.nl rebuild
+        run: |
+          # Trigger Kijko_Docs CI to pull latest wiki content
+          gh api repos/david-kijko/Kijko_Docs/dispatches \
+            -f event_type=wiki-content-updated \
+            -f "client_payload[source]=Kijko-wiki" \
+            -f "client_payload[run_id]=${{ github.run_id }}"
+        env:
+          GH_TOKEN: ${{ secrets.DOCS_DEPLOY_TOKEN }}

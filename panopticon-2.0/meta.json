@@ -1,0 +1,15 @@
+{
+  "title": "Panopticon 2.0",
+  "icon": "Workflow",
+  "defaultOpen": true,
+  "pages": [
+    "index",
+    "architecture",
+    "agents",
+    "mcp-integration",
+    "state-persistence",
+    "configuration",
+    "quickstart",
+    "api-reference"
+  ]
+}

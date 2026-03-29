@@ -1,0 +1,195 @@
+---
+title: "Configuration"
+description: "All environment variables, renderer settings, Canon rules, and tuning parameters for HyperVisa 3.0"
+icon: Settings
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { TypeTable } from 'fumadocs-ui/components/type-table'
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion'
+
+HyperVisa 3.0 is configured through environment variables, Python constants, Canon YAML rules, and systemd timer settings. There is no single config file -- each subsystem owns its configuration surface.
+
+## Environment Variables
+
+<TypeTable
+  type={{
+    GEMINI_API_KEY: { type: 'string', description: 'Google Gemini API key. Required for all video upload and query operations.', required: true },
+    HYPERVISA_SMITH_TRACE_DIR: { type: 'string', description: 'Smith trace directory for JSONL event logs.', default: '"~/.cortex/smith/traces"' },
+    HYPERVISA_SMITH_COMPRESS_DAYS: { type: 'integer', description: 'Compress trace files older than N days.', default: '7' },
+    HYPERVISA_SMITH_DELETE_DAYS: { type: 'integer', description: 'Delete compressed traces older than N days.', default: '30' },
+    HYPERVISA_VENV: { type: 'string', description: 'Path to the virtual environment (used by deploy scripts).', default: '"/home/devuser/HyperVisa3.0/.venv"' },
+    HYPERVISA_TRINITY_SESSION: { type: 'string', description: 'Trinity APO session ID for cron-triggered runs.', default: '"trinity-cron-YYYYMMDD"' },
+    HYPERVISA_LOG_DIR: { type: 'string', description: 'Trinity APO log directory.', default: '"~/.cortex/logs"' },
+  }}
+/>
+
+## Pipeline Constants
+
+These constants are defined in `src/hypervisa/models/core.py` and control the ingestion pipeline behavior.
+
+<TypeTable
+  type={{
+    CHARS_PER_TOKEN: { type: 'int', description: 'Characters per token for token estimation from raw text.', default: '4' },
+    VIDEO_TOKENS_PER_TEXT_TOKEN: { type: 'float', description: 'Compression ratio: video tokens consumed per text token represented.', default: '1/7 (0.143)' },
+    MAX_SEGMENT_TOKENS: { type: 'int', description: 'Maximum tokens per segment in swarm mode. Directories exceeding this are split by subdirectory.', default: '450,000' },
+    SWARM_THRESHOLD: { type: 'int', description: 'Total token count above which swarm mode activates (multiple segments, parallel agents).', default: '500,000' },
+  }}
+/>
+
+## Renderer Configuration
+
+The V3 renderer is configured via `RenderConfig` in `core/hypervisa_renderer_v3.py`. These are the validated optimal settings for VLM code comprehension:
+
+<TypeTable
+  type={{
+    frame_width: { type: 'int', description: 'Video frame width in pixels. Landscape orientation for code.', default: '1920' },
+    frame_height: { type: 'int', description: 'Video frame height in pixels.', default: '1080' },
+    font_size: { type: 'int', description: 'Tamzen bitmap font size in points. Available: 9, 12, 13, 14, 15, 16, 20.', default: '16' },
+    use_bold: { type: 'boolean', description: 'Use bold Tamzen variant for better VLM contrast.', default: 'true' },
+    render_scale: { type: 'int', description: 'Supersampling factor (1-4). 2x reduces VLM hallucination but doubles render time.', default: '1' },
+    layout_mode: { type: 'LayoutMode', description: 'SINGLE_COLUMN preserves code structure. DOUBLE_PAGE for prose. ADAPTIVE auto-selects.', default: 'SINGLE_COLUMN' },
+    density_level: { type: 'float', description: 'Content density (0.0-1.0). Higher = more code per frame, smaller font.', default: '0.7' },
+    line_spacing: { type: 'float', description: 'Vertical spacing between lines as a multiplier of font size.', default: '1.2' },
+    background_color: { type: 'tuple[int,int,int]', description: 'Frame background RGB color.', default: '(255, 255, 255)' },
+    text_color: { type: 'tuple[int,int,int]', description: 'Text foreground RGB color.', default: '(33, 33, 33)' },
+  }}
+/>
+
+### Renderer Presets
+
+```python title="Creating a renderer with custom config"
+from hypervisa.core.hypervisa_renderer_v3 import HypervisaRendererV3, create_optimized_config
+
+# Use the validated optimal config
+config = create_optimized_config()
+renderer = HypervisaRendererV3(config)
+
+# Or use V2 presets for different use cases
+from hypervisa.core.hypervisa_renderer_v2 import HypervisaRendererV2
+renderer = HypervisaRendererV2.create_preset("code")    # Code-optimized
+renderer = HypervisaRendererV2.create_preset("document") # Prose/docs
+renderer = HypervisaRendererV2.create_preset("dense")    # Maximum density
+```
+
+## Gemini Client Configuration
+
+<TypeTable
+  type={{
+    model: { type: 'string', description: 'Gemini model identifier for generation and token counting.', default: '"gemini-2.5-flash-preview"' },
+    'Router temperature': { type: 'float', description: 'Low temperature for deterministic segment selection.', default: '0.2' },
+    'Agent temperature': { type: 'float', description: 'High temperature for exploratory code analysis.', default: '1.1' },
+    'Synthesizer temperature': { type: 'float', description: 'Balanced temperature for response merging.', default: '0.5' },
+    'Thinking level': { type: 'string', description: 'Gemini thinking budget. Options: HIGH, MEDIUM, LOW, NONE.', default: 'HIGH (agents), LOW (router)' },
+    MAX_RETRIES: { type: 'int', description: 'Maximum retry attempts for rate-limited requests.', default: '5' },
+    BASE_DELAY: { type: 'float', description: 'Initial retry delay in seconds (doubles each attempt).', default: '1.0' },
+    MAX_DELAY: { type: 'float', description: 'Maximum retry delay cap in seconds.', default: '60.0' },
+    POLL_INTERVAL: { type: 'float', description: 'File upload polling interval in seconds.', default: '2.0' },
+    POLL_TIMEOUT: { type: 'float', description: 'Maximum time to wait for file activation in seconds.', default: '300.0' },
+  }}
+/>
+
+## Canon Rule Configuration
+
+Canon rules are stored as YAML files in `~/.cortex/canon/`. Each rule has the following structure:
+
+```yaml title="~/.cortex/canon/reflexes.yaml"
+- rule_id: R001            # Unique identifier
+  tier: reflex             # reflex | habit | skill
+  hook_target: PreToolUse  # Hook to intercept
+  condition: "tool_name == 'Bash' and 'rm -rf' in input"
+  action: block            # block | warn | continue | inject
+  message: "R001: Destructive command blocked."
+  priority: 1              # Lower number = higher priority
+  enabled: true
+```
+
+### Canon Tiers
+
+| Tier | Action | File | Purpose |
+|------|--------|------|---------|
+| Reflex | `BLOCK` or `WARN` | `reflexes.yaml` | Immediate prevention of dangerous operations |
+| Habit | `WARN` | `habits.yaml` | Best-practice reminders logged to traces |
+| Skill | `INJECT` | `skills.yaml` | Context injection at capacity thresholds |
+
+### Default Seed Rules
+
+<Accordions>
+  <Accordion title="Reflexes (4 rules)">
+    - **R001**: Block `rm -rf` commands
+    - **R002**: Block `git push --force`
+    - **R003**: Warn on writes to auth-related files
+    - **R004**: Block `--no-verify` flag (never skip pre-commit hooks)
+  </Accordion>
+  <Accordion title="Habits (3 rules)">
+    - **H001**: After editing, verify all callers are updated
+    - **H002**: Before claiming completion, run verification commands
+    - **H003**: Warn when sub-agents are spawned outside `/spec`
+  </Accordion>
+  <Accordion title="Skills (2 rules)">
+    - **S001**: At 70% context, inject "complete current task before starting new work"
+    - **S002**: At 85% context, inject "finish with full quality, auto-compaction imminent"
+  </Accordion>
+</Accordions>
+
+## Trinity APO Configuration
+
+Trinity's behavior is configured through the `Trinity` class constructor and systemd timer settings.
+
+<TypeTable
+  type={{
+    beam_width: { type: 'int', description: 'Number of candidate prompts generated per experiment.', default: '3' },
+    rounds: { type: 'int', description: 'Maximum APO evaluation rounds per experiment.', default: '2' },
+  }}
+/>
+
+### Governance Tiers
+
+| Tier | Threshold | Approval | SLA |
+|------|-----------|----------|-----|
+| Tier 1 | >15% composite improvement, zero regression | Auto-deploy | Immediate |
+| Tier 2 | Moderate improvement | Oracle approval via Zulip | 4 hours |
+| Tier 3 | Architectural changes | Human veto window | 24 hours |
+
+## Reward Function Weights
+
+The 6-dimensional reward function can be tuned by modifying weights in `models/reward.py`:
+
+| Dimension | Weight | Metric |
+|-----------|--------|--------|
+| `test_pass_rate` | 0.25 | Percentage of tests passing |
+| `token_efficiency` | 0.20 | `1 - (tokens_used / tokens_available)` |
+| `commit_fidelity` | 0.20 | `tests_added / files_modified` |
+| `code_quality` | 0.15 | Linting and style compliance |
+| `tool_efficiency` | 0.10 | `1 - (tool_calls / max_expected)` |
+| `violation_rate` | 0.10 | `1 - (canon_violations / total_hooks)` |
+
+## Exploration Engine Configuration
+
+<TypeTable
+  type={{
+    _SUBPROCESS_TIMEOUT: { type: 'int', description: 'Timeout in seconds per exploration command.', default: '30' },
+    _ALLOWED_COMMANDS: { type: 'frozenset', description: 'Whitelist of commands the exploration engine may execute.', default: 'find, grep, wc, head, tail, tree, awk, sed, cat, ls, file, sort, uniq, cut' },
+  }}
+/>
+
+## Database Configuration
+
+HyperVisa uses SQLite with WAL mode for concurrent read access during queries.
+
+| Setting | Value |
+|---------|-------|
+| Database path | `~/.hypervisa/hypervisa.db` |
+| Journal mode | WAL (Write-Ahead Logging) |
+| Video storage | `~/.hypervisa/videos/{session_id}/` |
+| Context cache TTL | 7 days (168 hours) |
+
+<Cards>
+  <Card title="Deployment" href="/docs/hypervisa-3.0/deployment">
+    Set up systemd services, reverse proxy, and cron timers for production.
+  </Card>
+  <Card title="API Reference" href="/docs/hypervisa-3.0/api-reference">
+    Complete reference for all REST endpoints, MCP tools, and CLI commands.
+  </Card>
+</Cards>

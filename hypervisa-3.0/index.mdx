@@ -1,0 +1,66 @@
+---
+title: "HyperVisa 3.0"
+description: "Adaptive video-mediated context engine that converts codebases into MP4 video for 22x token compression when querying with Gemini"
+icon: Video
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+
+HyperVisa 3.0 converts entire codebases into MP4 video, achieving **22x token compression** when fed to Google Gemini's vision model. Instead of stuffing millions of text tokens into a context window, HyperVisa renders source code as bitmap frames and lets Gemini process them visually -- delivering full-repository understanding at a fraction of the token cost.
+
+The system powers the Kijko ecosystem's code understanding layer through three interfaces: a Click CLI, a FastAPI REST API on port 8042, and an MCP server for direct LLM tool integration.
+
+<Cards>
+  <Card title="Video Compression Engine" href="/docs/hypervisa-3.0/concepts">
+    Renders code as 1920x1080 frames using Tamzen bitmap fonts at 1fps. A repository that would exhaust Gemini's 1M context window as text fits as a short MP4 with room for 10-20 additional repos.
+  </Card>
+  <Card title="Multi-Agent Swarm" href="/docs/hypervisa-3.0/architecture">
+    For large codebases (500K+ tokens), the Router-Agent-Synthesizer pipeline splits work across parallel Gemini agents, each processing their own video segment concurrently.
+  </Card>
+  <Card title="Triad Governance" href="/docs/hypervisa-3.0/concepts#the-triad-oracle-smith-trinity">
+    Oracle orchestrates queries, Smith enforces behavioral rules via the Canon system, and Trinity continuously optimizes prompts through Automated Prompt Optimization (APO).
+  </Card>
+  <Card title="MCP + REST + CLI" href="/docs/hypervisa-3.0/api-reference">
+    Six MCP tools for LLM integration, a full FastAPI surface for web clients, and a Click CLI for terminal workflows -- all backed by the same SQLite session store.
+  </Card>
+  <Card title="Bash Exploration Layer" href="/docs/hypervisa-3.0/concepts#layer-1-bash-exploration">
+    Before rendering video, the ExplorationEngine runs 3 rounds of safe bash commands (grep, find, head) to narrow the codebase to the relevant 5%, producing higher-density video frames.
+  </Card>
+  <Card title="Baton Relay Protocol" href="/docs/hypervisa-3.0/concepts#baton-relay-protocol">
+    Compresses session history and NotebookLM knowledge into a &lt;500-token JSON payload that gives agents maximum behavioral activation per token across session boundaries.
+  </Card>
+</Cards>
+
+## How It Works
+
+1. **Ingest** a codebase via `hypervisa ingest --source ./repo --name my-project`. Repomix serializes the directory into XML, HyperVisa parses and segments the output, then renders each segment as an MP4 video using the V3 renderer.
+
+2. **Upload** each video segment to Google Gemini's file API. HyperVisa polls until the file reaches ACTIVE state, then persists the Gemini file reference in its SQLite session store alongside a CodeMap that indexes frames to source files.
+
+3. **Query** with `hypervisa query --session my-project "How does authentication work?"`. For single-segment sessions, the query goes directly to Gemini with the video. For swarm-mode sessions, the Router selects up to 3 relevant segments, parallel agents query each one, and the Synthesizer merges their responses with conflict detection.
+
+4. **Govern** via the Triad. Smith intercepts every tool call through the Canon rule system (reflexes block, habits warn, skills inject context). Trinity runs daily APO experiments on Smith's trace data to improve prompt quality over time.
+
+## Key Numbers
+
+| Metric | Value | Source |
+|--------|-------|--------|
+| Token compression | **22x** (measured on OpenClaw repo) | `docs/RLM-DependencyGraph-Addendum.md` |
+| Video resolution | 1920x1080 landscape, 1fps | `core/hypervisa_renderer_v3.py` |
+| Swarm threshold | 500,000 tokens | `models/core.py:SWARM_THRESHOLD` |
+| Max segment size | 450,000 tokens | `models/core.py:MAX_SEGMENT_TOKENS` |
+| Gemini cache TTL | 7 days (168 hours) | `store.py` |
+| Router temperature | 0.2 (low creativity) | `swarm.py` |
+| Agent temperature | 1.1 (high exploration) | `gemini.py` |
+| Synthesizer temperature | 0.5 (balanced) | `swarm.py` |
+| API port | 8042 | `api_main.py` |
+
+<Cards>
+  <Card title="Quickstart" href="/docs/hypervisa-3.0/quickstart">
+    Ingest your first codebase and run a query in under 5 minutes.
+  </Card>
+  <Card title="Architecture" href="/docs/hypervisa-3.0/architecture">
+    Deep dive into the ingestion pipeline, query flow, and multi-agent coordination.
+  </Card>
+</Cards>

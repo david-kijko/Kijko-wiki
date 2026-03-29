@@ -1,0 +1,91 @@
+name: Source Repo Webhook Template
+
+# This workflow template should be added to each source repository
+# (panopticon, HyperVisa3.0, baton-exchange, Kijko_Docs)
+# to trigger wiki rewrites when code changes.
+#
+# Copy the appropriate job below into a .github/workflows/trigger-wiki.yml
+# in the source repo.
+
+# === TEMPLATE FOR SOURCE REPOS ===
+# Replace REPO_NAME with: panopticon, panopticon2, hypervisa, kijko-frontend, or baton-exchange
+#
+# name: Trigger Wiki Rewrite
+# on:
+#   push:
+#     branches: [main]
+#     paths-ignore:
+#       - '*.md'
+#       - '.github/**'
+#       - 'docs/**'
+#   release:
+#     types: [published]
+#
+# jobs:
+#   trigger-wiki:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Dispatch wiki rewrite
+#         run: |
+#           gh api repos/david-kijko/Kijko-wiki/dispatches \
+#             -f event_type=wiki-rewrite-REPO_NAME \
+#             -f "client_payload[commit]=${{ github.sha }}" \
+#             -f "client_payload[ref]=${{ github.ref }}" \
+#             -f "client_payload[actor]=${{ github.actor }}"
+#         env:
+#           GH_TOKEN: ${{ secrets.WIKI_DISPATCH_TOKEN }}
+
+on: workflow_dispatch
+
+jobs:
+  install-webhooks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install trigger workflows in source repos
+        run: |
+          REPOS=(
+            "kijko-ai/panopticon:panopticon"
+            "kijko-ai/HyperVisa3.0:hypervisa"
+            "kijko-ai/baton-exchange:baton-exchange"
+            "david-kijko/Kijko_Docs:kijko-frontend"
+          )
+
+          for entry in "${REPOS[@]}"; do
+            REPO="${entry%%:*}"
+            NAME="${entry##*:}"
+
+            echo "Installing wiki trigger for $REPO -> wiki-rewrite-$NAME"
+
+            WORKFLOW_CONTENT=$(cat <<YAML
+          name: Trigger Wiki Rewrite
+          on:
+            push:
+              branches: [main]
+              paths-ignore:
+                - '*.md'
+                - '.github/**'
+                - 'docs/**'
+            release:
+              types: [published]
+
+          jobs:
+            trigger-wiki:
+              runs-on: ubuntu-latest
+              steps:
+                - name: Dispatch wiki rewrite
+                  run: |
+                    gh api repos/david-kijko/Kijko-wiki/dispatches \\
+                      -f event_type=wiki-rewrite-$NAME \\
+                      -f "client_payload[commit]=\${{ github.sha }}" \\
+                      -f "client_payload[ref]=\${{ github.ref }}" \\
+                      -f "client_payload[actor]=\${{ github.actor }}"
+                  env:
+                    GH_TOKEN: \${{ secrets.WIKI_DISPATCH_TOKEN }}
+          YAML
+            )
+
+            echo "$WORKFLOW_CONTENT"
+            echo "---"
+          done
+        env:
+          GH_TOKEN: ${{ secrets.SOURCE_REPO_TOKEN }}

@@ -1,0 +1,188 @@
+---
+title: "Quickstart"
+description: "Ingest a codebase and query it through HyperVisa's video-mediated context engine in under 5 minutes"
+icon: Rocket
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Step, Steps } from 'fumadocs-ui/components/steps'
+
+Get a codebase ingested, compressed into video, and queryable through Gemini in under 5 minutes.
+
+<Callout type="info" title="Before you begin">
+  - Python 3.12+ installed
+  - A [Gemini API key](https://aistudio.google.com/apikey) with access to `gemini-2.5-flash-preview`
+  - [Repomix](https://github.com/yamadashy/repomix) installed globally (`npm install -g repomix`)
+  - FFmpeg available on your PATH (for video encoding via PyAV)
+</Callout>
+
+<Steps>
+  <Step>
+    ### Install HyperVisa
+
+    Clone the repository and install in editable mode with dev dependencies.
+
+    ```bash title="Terminal"
+    git clone https://github.com/kijko/HyperVisa3.0.git
+    cd HyperVisa3.0
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install -e ".[dev]"
+    ```
+
+    Verify the installation:
+
+    ```bash title="Terminal"
+    hypervisa --version
+    # hypervisa, version 3.0.0
+    ```
+  </Step>
+
+  <Step>
+    ### Set your Gemini API key
+
+    HyperVisa reads the key from the `GEMINI_API_KEY` environment variable.
+
+    ```bash title="Terminal"
+    export GEMINI_API_KEY="your-api-key-here"
+    ```
+
+    Alternatively, create a `.env` file in the project root:
+
+    ```bash title=".env"
+    GEMINI_API_KEY=your-api-key-here
+    ```
+  </Step>
+
+  <Step>
+    ### Ingest a codebase
+
+    Point HyperVisa at any local directory. It will run Repomix to serialize the codebase, parse the output, determine single or swarm mode, render video frames, and upload to Gemini.
+
+    <Tabs items={['Local directory', 'Git repository']}>
+      <Tab value="Local directory">
+        ```bash title="Terminal"
+        hypervisa ingest --source /path/to/your/repo --name my-project
+        ```
+      </Tab>
+      <Tab value="Git repository">
+        ```bash title="Terminal"
+        hypervisa ingest --repo https://github.com/user/repo.git --name my-project
+        ```
+      </Tab>
+    </Tabs>
+
+    The output shows the ingestion progress:
+
+    ```
+    Running repomix on /path/to/your/repo...
+    Parsed 47 files (125,000 tokens).
+    Rendering segment 'main' (47 files)...
+    Uploading 'main' to Gemini...
+    {
+      "session_id": "a1b2c3d4...",
+      "name": "my-project",
+      "mode": "single",
+      "files": 47,
+      "total_tokens": 125000,
+      "video_tokens": 17857,
+      "segments": 1,
+      "status": "complete"
+    }
+    ```
+
+    **Single mode** activates for codebases under 500K tokens (one video for the entire repo). **Swarm mode** kicks in above that threshold, splitting the codebase into segments grouped by top-level directory.
+  </Step>
+
+  <Step>
+    ### Query the codebase
+
+    Ask questions in natural language. Gemini processes the video frames and returns answers with verifiable citations pointing to specific frame locations.
+
+    ```bash title="Terminal"
+    hypervisa query --session my-project "How does the authentication system work?"
+    ```
+
+    For structured output:
+
+    ```bash title="Terminal"
+    hypervisa query --session my-project --json "What are the main API endpoints?"
+    ```
+
+    The JSON response includes citations with `frame`, `column`, `row`, `file_path`, and `confidence` fields for every claim.
+  </Step>
+
+  <Step>
+    ### Check session status
+
+    View details about your ingested sessions including segment counts, token usage, and Gemini file status.
+
+    ```bash title="Terminal"
+    # Single session
+    hypervisa status --session my-project
+
+    # All sessions
+    hypervisa status --all
+
+    # List sessions summary
+    hypervisa sessions
+    ```
+  </Step>
+</Steps>
+
+## Verification
+
+After completing the quickstart, you should be able to:
+
+- Run `hypervisa sessions` and see your project listed with status `ready`
+- Run `hypervisa query --session my-project "What does this codebase do?"` and receive a coherent answer
+- See video files at `~/.hypervisa/videos/<session-id>/`
+- See the SQLite database at `~/.hypervisa/hypervisa.db`
+
+## Using the REST API
+
+Instead of the CLI, you can use the FastAPI server:
+
+```bash title="Terminal"
+# Start the API server
+hypervisa-api
+# Server runs on http://localhost:8042
+```
+
+Then interact via HTTP:
+
+```bash title="Terminal"
+# Health check
+curl http://localhost:8042/health
+
+# Ingest (returns 202 with task_id for polling)
+curl -X POST http://localhost:8042/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"source_dir": "/path/to/repo", "name": "my-project"}'
+
+# Query
+curl -X POST http://localhost:8042/<session_id>/query \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "How does authentication work?"}'
+```
+
+## Using the MCP Server
+
+For direct LLM tool integration, start the MCP server:
+
+```bash title="Terminal"
+hypervisa-mcp
+```
+
+This exposes six tools via the Model Context Protocol over stdio: `hypervisa_ingest`, `hypervisa_query`, `hypervisa_locate`, `hypervisa_analyse`, `hypervisa_status`, and `hypervisa_sessions`, plus Smith and Trinity tools.
+
+<Cards>
+  <Card title="Core Concepts" href="/docs/hypervisa-3.0/concepts">
+    Understand video compression, the Triad governance model, and the multi-layer architecture.
+  </Card>
+  <Card title="API Reference" href="/docs/hypervisa-3.0/api-reference">
+    Complete reference for all REST endpoints, MCP tools, and CLI commands.
+  </Card>
+</Cards>

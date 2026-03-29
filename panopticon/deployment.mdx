@@ -1,0 +1,353 @@
+---
+title: Deployment
+description: "Docker Compose infrastructure, Temporal setup, Nexus registration, systemd services, and production operations guide"
+icon: Server
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Step, Steps } from 'fumadocs-ui/components/steps'
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion'
+import { TypeTable } from 'fumadocs-ui/components/type-table'
+
+Panopticon runs as a set of Python processes backed by a Temporal infrastructure layer. This guide covers the full deployment path: from Docker Compose setup through Nexus endpoint registration to systemd service management and production hardening.
+
+## Infrastructure Requirements
+
+| Component | Requirement |
+|-----------|-------------|
+| Python | 3.12+ |
+| Docker + Compose | v2+ |
+| RAM | 2 GB minimum (Temporal + PostgreSQL + Panopticon) |
+| Disk | 1 GB for Temporal data, variable for trace/memory files |
+| Network | Port 7233 (Temporal gRPC), 8233 (Temporal UI), 8043 (REST API) |
+| Gemini API | At least one API key (3+ recommended for failover) |
+
+## Docker Compose Deployment
+
+<Steps>
+  <Step>
+    ### Start the Temporal infrastructure
+
+    The `docker-compose.yml` at the repository root provides a single-node Temporal deployment with PostgreSQL persistence.
+
+    ```bash
+    docker compose up -d
+    ```
+
+    This starts three containers:
+
+    | Container | Image | Port | Purpose |
+    |-----------|-------|------|---------|
+    | postgresql | `postgres:15` | (internal) | Temporal persistence |
+    | temporal | `temporalio/auto-setup:latest` | 7233 | gRPC frontend |
+    | temporal-ui | `temporalio/ui:latest` | 8233 | Web dashboard |
+
+    Wait for the health checks to pass:
+
+    ```bash
+    docker compose ps
+    ```
+
+    The Temporal server takes approximately 30 seconds to become healthy on first start. The `auto-setup` image handles schema creation automatically.
+  </Step>
+
+  <Step>
+    ### Install Panopticon
+
+    Install from the repository root:
+
+    ```bash
+    pip install -e .
+    ```
+
+    This installs the `panopticon` CLI and all dependencies:
+    - `click>=8.0` -- CLI framework
+    - `pyyaml>=6.0` -- Configuration parsing
+    - `temporalio>=1.20` -- Temporal SDK
+    - `mcp>=1.0.0` -- MCP protocol implementation
+    - `google-genai>=1.0` -- Gemini API client
+    - `flask-cors>=4.0` -- REST API
+    - `hypervisa` -- Video encoding for tool discovery
+  </Step>
+
+  <Step>
+    ### Configure environment
+
+    Set the required environment variables:
+
+    ```bash title="/etc/environment or ~/.bashrc"
+    # Gemini API keys (at least one required)
+    export GEMINI_API_KEYS="key1,key2,key3"
+
+    # Temporal (defaults shown -- override for remote Temporal)
+    export TEMPORAL_ADDRESS="localhost:7233"
+    export TEMPORAL_NAMESPACE="default"
+    export PANOPTICON_TASK_QUEUE="panopticon-tasks"
+
+    # REST API port
+    export PANOPTICON_API_PORT="8043"
+    ```
+  </Step>
+
+  <Step>
+    ### Register MCP servers
+
+    Register the downstream MCP servers that Panopticon will manage:
+
+    ```bash
+    panopticon register firecrawl npx -a @anthropic/firecrawl-mcp
+    panopticon register exa npx -a @anthropic/exa-mcp
+    ```
+
+    Verify the registration:
+
+    ```bash
+    panopticon health
+    ```
+  </Step>
+
+  <Step>
+    ### Build the tool catalog
+
+    ```bash
+    panopticon discover --rebuild
+    ```
+
+    This fetches schemas from all registered servers, renders the HyperVisa video, and uploads to Gemini.
+  </Step>
+
+  <Step>
+    ### Start the worker
+
+    ```bash
+    panopticon worker
+    ```
+
+    The worker connects to Temporal at the configured address and begins processing workflows on the `panopticon-tasks` queue.
+  </Step>
+
+  <Step>
+    ### Register the Nexus endpoint (optional)
+
+    For cross-namespace tool execution:
+
+    ```bash
+    python -m panopticon.temporal.register_nexus
+    ```
+
+    Output:
+
+    ```text
+    Connecting to Temporal at localhost:7233 (ns=default)
+    Nexus endpoint 'panopticon' registered
+      Target: default/panopticon-tasks
+      Endpoint ID: abc12345
+    ```
+  </Step>
+</Steps>
+
+## Systemd Service Setup
+
+For production, run the Panopticon worker and API as systemd services.
+
+### Worker Service
+
+```ini title="/etc/systemd/system/panopticon-worker.service"
+[Unit]
+Description=Panopticon Temporal Worker
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=david
+WorkingDirectory=/home/david/Projects/Panopticon
+Environment=GEMINI_API_KEYS=key1,key2,key3
+Environment=TEMPORAL_ADDRESS=localhost:7233
+ExecStart=/home/david/.local/bin/panopticon worker
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### API Service
+
+```ini title="/etc/systemd/system/panopticon-api.service"
+[Unit]
+Description=Panopticon REST API
+After=network.target panopticon-worker.service
+
+[Service]
+Type=simple
+User=david
+WorkingDirectory=/home/david/Projects/Panopticon
+Environment=GEMINI_API_KEYS=key1,key2,key3
+Environment=PANOPTICON_API_PORT=8043
+ExecStart=/home/david/.local/bin/panopticon api --port 8043
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Enable and Start
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable panopticon-worker panopticon-api
+sudo systemctl start panopticon-worker panopticon-api
+```
+
+### Verify
+
+```bash
+sudo systemctl status panopticon-worker
+sudo systemctl status panopticon-api
+```
+
+## NotebookLM Cookie Refresh
+
+The NotebookLM MCP server requires fresh Google session cookies. Panopticon includes a Temporal workflow (`NotebookLMCookieRefreshWorkflow`) that refreshes cookies every 25 minutes using headless Chrome.
+
+### Prerequisites
+
+- Headless Chrome installed with a Google-authenticated profile
+- The `refresh_tokens.sh` script at `~/.notebooklm-mcp/refresh_tokens.sh`
+- A virtual display (`:1`) for headless browser execution
+
+### How It Works
+
+1. The workflow runs the refresh script via `subprocess.run`
+2. Headless Chrome opens the NotebookLM URL with the stored profile
+3. Fresh cookies (including CSRF token) are extracted and saved to `~/.notebooklm-mcp/auth.json`
+4. If refresh fails 3 consecutive times, the workflow logs an error but keeps running with longer backoff
+
+### Starting the Cookie Refresh
+
+```python
+from panopticon.temporal.client import start_cookie_refresh
+handle = await start_cookie_refresh()
+```
+
+The workflow uses a fixed ID (`notebooklm-cookie-refresh`) so only one instance runs at a time.
+
+## Production Hardening
+
+### Multiple Gemini Keys
+
+Production deployments should use 3+ Gemini API keys for resilience:
+
+```bash
+export GEMINI_API_KEYS="key1,key2,key3"
+export VERTEX_API_KEYS="vertex1,vertex2"
+```
+
+The key pool rotates automatically on rate limits. With 5 keys at 10 RPM each, you get 50 RPM total throughput.
+
+### Temporal Cluster
+
+For production, replace the single-node Docker Compose Temporal with a multi-node Temporal cluster:
+
+```bash
+# Override the Temporal address
+export TEMPORAL_ADDRESS="temporal.production.internal:7233"
+export TEMPORAL_NAMESPACE="panopticon"
+```
+
+### Monitoring
+
+Monitor Panopticon through the REST API:
+
+```bash
+# Health check (integrate with your monitoring stack)
+curl -s http://localhost:8043/api/panopticon/health | jq .status
+
+# Temporal workflow stats
+curl -s http://localhost:8043/api/panopticon/temporal | jq .stats
+
+# Key pool status (detect exhaustion)
+curl -s http://localhost:8043/api/panopticon/health | jq .key_pool
+
+# Trace statistics (detect degradation)
+curl -s http://localhost:8043/api/panopticon/traces/stats | jq .success_rate
+```
+
+### Log Management
+
+Panopticon logs to stderr with the format `%(asctime)s %(name)s %(levelname)s %(message)s`. Key loggers to monitor:
+
+| Logger | What It Reports |
+|--------|----------------|
+| `panopticon.api` | REST API requests and errors |
+| `panopticon.mcp` | MCP server tool calls and errors |
+| `panopticon.proxy` | MCPProcessManager connection events |
+| `panopticon.discovery` | Catalog build and visual search |
+| `panopticon.worker` | Worker lifecycle events |
+| `panopticon.keys` | Key pool rotation, cooldown, failures |
+| `panopticon.trace` | Execution trace recording |
+| `panopticon.hive` | Hive mind promotions |
+| `panopticon.steering` | Guardrail enforcement decisions |
+| `panopticon.oracle` | Oracle consultation events |
+
+### Backup
+
+Critical data to back up:
+
+| Path | Data | Backup Frequency |
+|------|------|-----------------|
+| `~/.panopticon/servers.yaml` | Server registrations | On change |
+| `~/.panopticon/guardrails.yaml` | Guardrail policy | On change |
+| `~/.panopticon/catalog.json` | Catalog metadata | On rebuild |
+| `~/.panopticon/memory/` | All memory files | Daily |
+| `~/.cortex/lightning/` | Traces and rollouts | Daily |
+| `temporal-pg-data` (Docker volume) | Temporal event history | Per your DB backup schedule |
+
+<Callout type="warn">
+Do NOT back up `~/.panopticon/schema_cache.json`. It is rebuilt automatically from live MCP servers and may contain stale data. Rebuild the catalog after restoring from backup.
+</Callout>
+
+## Scaling Considerations
+
+### MCP Server Concurrency
+
+Each MCP server gets a per-server `asyncio.Lock`. Multiple agents can call different servers concurrently, but calls to the same server are serialized. If you need concurrent access to the same underlying service, register it multiple times under different names:
+
+```yaml
+servers:
+  firecrawl-1:
+    command: npx
+    args: ["@anthropic/firecrawl-mcp"]
+    enabled: true
+  firecrawl-2:
+    command: npx
+    args: ["@anthropic/firecrawl-mcp"]
+    enabled: true
+```
+
+### Worker Scaling
+
+Multiple Panopticon workers can connect to the same Temporal task queue. Temporal distributes workflows across available workers automatically. Each worker manages its own MCPProcessManager, so each worker gets its own set of MCP server subprocesses.
+
+```bash
+# Worker 1
+PANOPTICON_TASK_QUEUE=panopticon-tasks panopticon worker
+
+# Worker 2 (on same or different machine)
+PANOPTICON_TASK_QUEUE=panopticon-tasks panopticon worker
+```
+
+## Next Steps
+
+<Cards>
+  <Card title="Configuration" href="/docs/panopticon/configuration">
+    Fine-tune server registrations, guardrail policies, and key pool settings.
+  </Card>
+  <Card title="Troubleshooting" href="/docs/panopticon/troubleshooting">
+    Diagnose common deployment issues and failure modes.
+  </Card>
+</Cards>

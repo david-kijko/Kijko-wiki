@@ -1,433 +1,317 @@
 ---
 title: Configuration
-description: Complete reference for all Panopticon configuration options including server, storage, processing, alerting, and scrape settings
+description: "Complete reference for MCP server registration, guardrail policies, Gemini key pools, Temporal settings, and memory system configuration"
 icon: Settings
-page_type: reference_spec
-audience: both
-tags:
-  - panopticon
-  - configuration
-  - reference
-  - yaml
 ---
-Panopticon reads its configuration from a single YAML file at startup. Every runtime behavior, from port assignments to retention policies to alerting thresholds, is controlled through this file. This reference documents every configuration key, its type, its default value, and the operational implications of changing it. When in doubt about a setting, the default value is always the conservative choice that prioritizes correctness over performance.
 
-## Configuration File Location
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion'
+import { TypeTable } from 'fumadocs-ui/components/type-table'
 
-By default, Panopticon looks for its configuration file at `/etc/panopticon/config.yaml`. You can override this path using the `--config` flag or the `PANOPTICON_CONFIG` environment variable.
+Panopticon uses a file-based configuration system with environment variable overrides. Configuration files are stored at `~/.panopticon/` and control MCP server registration, guardrail enforcement, Temporal connectivity, and memory system behavior. This reference documents every configuration option, its type, default value, and operational implications.
+
+## Configuration Directory
+
+All Panopticon configuration lives under `~/.panopticon/`:
+
+```
+~/.panopticon/
+  servers.yaml           # MCP server registrations
+  catalog.json           # HyperVisa video catalog metadata
+  schema_cache.json      # Cached tool schemas from MCP servers
+  guardrails.yaml        # Smith guardrail enforcement policy
+  memory/
+    episodic.jsonl       # Episodic memory records
+    hive.jsonl           # Hive mind observations
+    promotions.jsonl     # Promoted patterns
+    traces.jsonl         # Archived execution traces
+```
+
+Panopticon creates these directories automatically on first run via the `ensure_dirs()` function in `panopticon/config.py`.
+
+## MCP Server Configuration
+
+MCP servers are registered in `~/.panopticon/servers.yaml`. Each entry defines how to start a downstream MCP server subprocess.
+
+```yaml title="~/.panopticon/servers.yaml"
+servers:
+  firecrawl:
+    command: npx
+    args:
+      - "@anthropic/firecrawl-mcp"
+    env:
+      FIRECRAWL_API_KEY: "fc-your-key-here"
+    enabled: true
+
+  exa:
+    command: npx
+    args:
+      - "@anthropic/exa-mcp"
+    env:
+      EXA_API_KEY: "exa-your-key-here"
+    enabled: true
+
+  graphiti:
+    command: python
+    args:
+      - "-m"
+      - "graphiti_mcp"
+    env:
+      GRAPHITI_HOST: "localhost"
+      GRAPHITI_PORT: "7474"
+    enabled: true
+
+  notebooklm:
+    command: node
+    args:
+      - "/path/to/notebooklm-mcp/dist/index.js"
+    env: {}
+    enabled: false
+```
+
+### Server Options
+
+<TypeTable
+  type={{
+    command: { type: 'string', description: 'Executable to run (e.g., npx, python, node)', required: true },
+    args: { type: 'string[]', description: 'Command-line arguments passed to the executable', default: '[]' },
+    env: { type: 'Record<string, string>', description: 'Environment variables injected into the subprocess', default: '{}' },
+    enabled: { type: 'boolean', description: 'Whether this server is available for tool calls', default: 'true' },
+  }}
+/>
+
+### Registering Servers via CLI
 
 ```bash
-# Using the CLI flag
-panopticon --config /path/to/my-config.yaml
+# Register with arguments and environment variables
+panopticon register firecrawl npx \
+  -a @anthropic/firecrawl-mcp \
+  -e FIRECRAWL_API_KEY=fc-xxx
 
-# Using the environment variable
-PANOPTICON_CONFIG=/path/to/my-config.yaml panopticon
+# Register a Python MCP server
+panopticon register my-tools python \
+  -a -m \
+  -a my_mcp_server
 ```
-
-In Docker deployments, the configuration file is typically mounted as a volume:
-
-```yaml
-volumes:
-  - ./config/panopticon.yaml:/etc/panopticon/config.yaml
-```
-
-<Callout type="info">
-Configuration changes require a restart by default. To enable hot reloading without restart, set `server.hot_reload: true` and use the management API endpoint `PUT /api/v1/admin/config/reload`. Not all settings support hot reload; the ones that do are marked below.
-</Callout>
-
-## Server Configuration
-
-The `server` section controls the network interfaces, connection handling, and operational mode.
-
-```yaml
-server:
-  ingestion_port: 9091      # Port for the ingestion API
-  query_port: 9090           # Port for the query and management APIs
-  mode: standalone           # Deployment mode: standalone | distributed
-  host: 0.0.0.0             # Bind address
-  max_connections: 1000      # Maximum concurrent connections per port
-  read_timeout: 30s          # Maximum time to read a request
-  write_timeout: 10s         # Maximum time to write a response
-  idle_timeout: 120s         # Close idle connections after this duration
-  hot_reload: false          # Enable hot configuration reload via API
-
-  auth:
-    enabled: false           # Enable bearer token authentication
-    token_file: ""           # Path to file containing valid tokens (one per line)
-
-  tls:
-    enabled: false           # Enable TLS for all endpoints
-    cert_file: ""            # Path to TLS certificate
-    key_file: ""             # Path to TLS private key
-
-  rate_limit:
-    ingest: 10000            # Max samples per second per source
-    query: 100               # Max queries per second (global)
-    admin: 10                # Max admin requests per second (global)
-```
-
-### Server Options Detail
-
-| Key | Type | Default | Hot Reload | Description |
-|-----|------|---------|-----------|-------------|
-| `ingestion_port` | integer | `9091` | No | TCP port for the ingestion API. Must not conflict with `query_port`. |
-| `query_port` | integer | `9090` | No | TCP port for the query and management APIs. |
-| `mode` | string | `standalone` | No | `standalone` runs all subsystems in one process. `distributed` expects each subsystem to run as a separate service. |
-| `host` | string | `0.0.0.0` | No | Network interface to bind. Use `127.0.0.1` to restrict to localhost. |
-| `max_connections` | integer | `1000` | Yes | Connection limit per port. Excess connections receive HTTP 503. |
-| `read_timeout` | duration | `30s` | Yes | Timeout for reading the full request. Protects against slow clients. |
-| `write_timeout` | duration | `10s` | Yes | Timeout for writing the response. Should be shorter than read timeout. |
-| `idle_timeout` | duration | `120s` | Yes | Idle connection cleanup threshold. |
-| `hot_reload` | boolean | `false` | No | When true, the management API can trigger configuration reloads. |
-| `auth.enabled` | boolean | `false` | Yes | Require bearer token on all requests. |
-| `auth.token_file` | string | `""` | Yes | Path to newline-delimited file of valid tokens. Reloaded on SIGHUP. |
-| `tls.enabled` | boolean | `false` | No | Terminate TLS at the Panopticon server. |
-| `rate_limit.ingest` | integer | `10000` | Yes | Per-source samples/second limit for ingestion. |
-| `rate_limit.query` | integer | `100` | Yes | Global queries/second limit. |
-| `rate_limit.admin` | integer | `10` | Yes | Global admin requests/second limit. |
-
-## Storage Configuration
-
-The `storage` section controls where and how Panopticon persists time-series data.
-
-```yaml
-storage:
-  data_dir: /var/lib/panopticon    # Root directory for all stored data
-  wal_dir: ""                       # Write-ahead log directory (defaults to data_dir/wal)
-
-  retention:
-    hot: 48h                        # Hot tier retention (full resolution)
-    warm: 720h                      # Warm tier retention (downsampled to 1m)
-    cold: 8760h                     # Cold tier retention (downsampled to 1h)
-
-  block_size: 2h                    # Time range per storage block
-  max_block_bytes: 512MB            # Maximum block size before forced rotation
-
-  compaction:
-    enabled: true                   # Enable background compaction
-    interval: 1h                    # How often to run the compaction pass
-    max_concurrent: 2               # Maximum concurrent compaction jobs
-
-  wal:
-    segment_size: 128MB             # WAL segment size before rotation
-    sync_on_write: false            # fsync each write (slow but durable)
-    checkpoint_interval: 5m         # WAL checkpoint frequency
-```
-
-### Retention Tiers
-
-Panopticon uses a three-tier retention model. Data automatically moves from hot to warm to cold as it ages, with increasing levels of downsampling to reduce storage requirements.
-
-<Tabs items={["Hot Tier", "Warm Tier", "Cold Tier"]}>
-  <Tab value="Hot Tier">
-    The hot tier stores data at full resolution with no downsampling. This is where real-time dashboards
-    and recent alert evaluations read from. The default retention of 48 hours means you have two full
-    days of granular data available for debugging.
-
-    **Storage cost**: Approximately 1.5 bytes per sample (compressed).
-    **Query speed**: Sub-millisecond for single-series queries.
-    **Recommended retention**: 24 to 168 hours depending on your debugging needs.
-  </Tab>
-  <Tab value="Warm Tier">
-    The warm tier stores data downsampled to 1-minute resolution. This is suitable for trend analysis,
-    capacity planning dashboards, and medium-term reporting. Data is automatically downsampled from the
-    hot tier when it ages past the hot retention window.
-
-    **Storage cost**: Approximately 0.1 bytes per original sample (after downsampling).
-    **Query speed**: Low single-digit milliseconds for typical dashboard queries.
-    **Recommended retention**: 30 to 90 days for most workloads.
-  </Tab>
-  <Tab value="Cold Tier">
-    The cold tier stores data downsampled to 1-hour resolution. This is designed for long-term SLO
-    tracking, annual capacity reports, and compliance-driven data retention. The cold tier can
-    optionally use a different storage backend (e.g., object storage) for cost efficiency.
-
-    **Storage cost**: Approximately 0.01 bytes per original sample.
-    **Query speed**: Low tens of milliseconds, acceptable for batch reporting.
-    **Recommended retention**: 12 to 24 months for SLO tracking.
-  </Tab>
-</Tabs>
 
 <Callout type="warn">
-Changing retention windows only affects future data. Existing data is not retroactively deleted or downsampled. To reclaim storage from historical data, use the `panopticon admin compact --force` command.
+Environment variables in `servers.yaml` are merged with the current process environment. Never store production secrets directly in this file. Use a secrets manager or reference environment variables that are set at the system level.
 </Callout>
 
-## Processing Configuration
+## Guardrail Policy
 
-The `processing` section controls the aggregation pipeline, anomaly detection, and alerting engine.
+Smith's guardrail enforcement is configured at `~/.panopticon/guardrails.yaml`. This controls which tools are allowed, what gets logged, and how aggressively results are scanned.
 
-```yaml
-processing:
-  aggregation:
-    enabled: true                    # Enable pre-aggregation
-    windows: [1m, 5m, 1h]           # Aggregation window sizes
-    functions: [avg, sum, count, min, max, p50, p95, p99]
-
-  anomaly_detection:
-    enabled: true                    # Enable statistical anomaly detection
-    baseline_period: 24h             # Minimum data required before detection activates
-    z_score_threshold: 3.5           # Modified z-score threshold for flagging anomalies
-    sensitivity: medium              # Preset: low (z=4.0), medium (z=3.5), high (z=3.0)
-
-  alerting:
-    enabled: true                    # Enable the alert evaluation engine
-    evaluation_interval: 10s         # How often to re-evaluate alert rules
-    max_firing_alerts: 1000          # Maximum concurrent firing alerts
-    notification_timeout: 30s        # Timeout for notification delivery
-
-    notification_channels:
-      - name: ops-webhook
-        type: webhook
-        url: https://hooks.slack.com/services/xxx
-
-      - name: ops-email
-        type: email
-        smtp_host: smtp.example.com
-        smtp_port: 587
-        from: panopticon@example.com
-        to: [ops@example.com]
+```yaml title="~/.panopticon/guardrails.yaml"
+level: MEDIUM
+blocked_tools:
+  - "dangerous_server.delete_all"
+  - "admin.drop_database"
+context_budget_warn: 0.85
+context_budget_compress: 0.90
+context_budget_emergency: 0.95
 ```
 
-### Aggregation Windows
+### Guardrail Options
 
-The aggregation windows determine which pre-computed rollups are available for queries. Adding more windows improves query performance for those specific resolutions but increases storage and processing overhead.
+<TypeTable
+  type={{
+    level: { type: '"HIGH" | "MEDIUM" | "LOW" | "MINIMAL"', description: 'Enforcement level controlling validation depth', default: '"MEDIUM"' },
+    blocked_tools: { type: 'string[]', description: 'Tool names or server.tool patterns to block unconditionally', default: '[]' },
+    context_budget_warn: { type: 'float', description: 'Context window usage fraction triggering a warning', default: '0.85' },
+    context_budget_compress: { type: 'float', description: 'Context window usage fraction triggering compression', default: '0.90' },
+    context_budget_emergency: { type: 'float', description: 'Context window usage fraction triggering emergency measures', default: '0.95' },
+  }}
+/>
 
-| Window | Typical Use Case | Storage Overhead |
-|--------|-----------------|-----------------|
-| `1m` | Real-time dashboards, alert rules | ~6x raw metrics (per function) |
-| `5m` | Standard monitoring dashboards | ~1.2x |
-| `1h` | Trend analysis, capacity planning | ~0.02x |
-| `1d` | Monthly reporting, SLO calculations | ~0.001x |
+### Enforcement Levels
 
-### Alert Rule Configuration
+| Level | Behavior |
+|-------|----------|
+| **HIGH** | Block dangerous + HIGH-only tools. Validate all parameters. Scan all results for secrets. Inject steering context. |
+| **MEDIUM** | Block dangerous tools. Scan results when flagged. Log tool calls. |
+| **LOW** | Log tool calls only. No blocking or scanning. |
+| **MINIMAL** | Complete pass-through. No logging, blocking, or scanning. |
 
-Alert rules can be defined in the configuration file or created dynamically via the management API. File-based rules are loaded at startup and cannot be deleted via the API (only updated).
+### Always-Blocked Tools
 
-```yaml
-alerts:
-  rules:
-    - name: high_error_rate
-      metric: http_requests_total
-      labels:
-        status: "500"
-      condition: "rate(5m) > 10"
-      duration: 2m
-      severity: critical
-      annotations:
-        summary: "Error rate exceeds 10 req/s for 2 minutes"
-        runbook: "https://wiki.example.com/runbooks/high-error-rate"
-      notify: [ops-webhook, ops-email]
+These tools are blocked regardless of enforcement level:
 
-    - name: disk_usage_warning
-      metric: node_filesystem_avail_bytes
-      condition: "value < 5368709120"  # 5 GB
-      duration: 5m
-      severity: warning
-      notify: [ops-webhook]
+| Tool | Reason |
+|------|--------|
+| `rm_rf` | Destructive filesystem operation |
+| `drop_database` | Destructive database operation |
+| `format_disk` | Destructive storage operation |
+
+### HIGH-Only Tools
+
+These tools require `level: HIGH` to execute:
+
+| Tool | Reason |
+|------|--------|
+| `git_push_force` | Destructive git operation |
+| `delete_branch` | Removes code branches |
+| `modify_permissions` | Changes access control |
+
+## Gemini Key Pool
+
+API keys are configured via environment variables (not YAML files, to avoid storing secrets on disk).
+
+### Environment Variables
+
+<TypeTable
+  type={{
+    GEMINI_API_KEYS: { type: 'string', description: 'Comma-separated regular Google AI Studio API keys for round-robin rotation' },
+    VERTEX_API_KEYS: { type: 'string', description: 'Comma-separated Vertex AI Express API keys (auto-prefixed with "vertex:")' },
+    GEMINI_API_KEY: { type: 'string', description: 'Single key fallback (used when GEMINI_API_KEYS is not set)' },
+  }}
+/>
+
+### Resolution Order
+
+1. `GEMINI_API_KEYS` (comma-separated) + `VERTEX_API_KEYS` (auto-prefixed)
+2. `GEMINI_API_KEY` (single key)
+3. Error: `KeyPoolError` if no keys found
+
+### Pool Parameters
+
+The key pool has internal defaults that are not currently exposed via configuration files:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `cooldown_seconds` | 60.0 | How long to sideline a rate-limited key |
+| `rpm_limit` | 10 | Max requests per minute per key before proactive rotation |
+
+<Callout type="info">
+The RPM limit of 10 per key is set conservatively because Panopticon operations (video upload, visual search) are heavier than typical Gemini calls. If you have high-tier API keys with higher rate limits, you can adjust this in code at `panopticon/keys.py`.
+</Callout>
+
+## Temporal Configuration
+
+Temporal connectivity is configured via environment variables.
+
+<TypeTable
+  type={{
+    TEMPORAL_ADDRESS: { type: 'string', description: 'Temporal gRPC frontend address', default: '"localhost:7233"' },
+    TEMPORAL_NAMESPACE: { type: 'string', description: 'Temporal namespace for Panopticon workflows', default: '"default"' },
+    PANOPTICON_TASK_QUEUE: { type: 'string', description: 'Temporal task queue name', default: '"panopticon-tasks"' },
+  }}
+/>
+
+### Docker Compose Infrastructure
+
+The `docker-compose.yml` in the repository root provides a single-node Temporal deployment:
+
+```yaml title="docker-compose.yml"
+services:
+  postgresql:
+    image: postgres:15
+    environment:
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_USER: temporal
+      POSTGRES_DB: temporal
+    volumes:
+      - temporal-pg-data:/var/lib/postgresql/data
+
+  temporal:
+    image: temporalio/auto-setup:latest
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=postgresql
+    ports:
+      - "7233:7233"   # gRPC frontend
+
+  temporal-ui:
+    image: temporalio/ui:latest
+    depends_on:
+      - temporal
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+    ports:
+      - "8233:8080"   # Web UI
+
+volumes:
+  temporal-pg-data:
 ```
 
-## Scrape Configuration
+## REST API Configuration
 
-The `scrape` section configures the Prometheus-compatible scrape controller.
+<TypeTable
+  type={{
+    PANOPTICON_API_PORT: { type: 'integer', description: 'Port for the Flask REST API', default: '8043' },
+  }}
+/>
 
-```yaml
-scrape:
-  global:
-    scrape_interval: 15s             # Default interval between scrapes
-    scrape_timeout: 10s              # Per-scrape timeout
+## Memory System Paths
 
-  targets:
-    - url: http://localhost:9090/metrics
-      interval: 15s                  # Override global interval
-      timeout: 5s                    # Override global timeout
-      labels:
-        service: panopticon
-        environment: local
-      honor_labels: false            # If true, don't override labels from the target
+The memory system uses fixed paths under `~/.panopticon/memory/`. These are not currently configurable via environment variables.
 
-    - url: http://api-gateway:8080/metrics
-      interval: 30s
-      labels:
-        service: api-gateway
-        environment: local
-      basic_auth:
-        username: scraper
-        password_file: /etc/panopticon/scrape-password
-```
+| File | Purpose | Format |
+|------|---------|--------|
+| `~/.panopticon/memory/episodic.jsonl` | Episodic memory records | JSONL |
+| `~/.panopticon/memory/hive.jsonl` | Hive mind observations | JSONL |
+| `~/.panopticon/memory/promotions.jsonl` | Promoted patterns | JSONL |
+| `~/.panopticon/memory/traces.jsonl` | Archived execution traces | JSONL |
+| `~/.cortex/lightning/traces/` | Agent Lightning trace files | JSONL per day |
+| `~/.cortex/lightning/rollouts/` | RL training rollouts | JSONL per day |
+| `~/.cortex/lightning/state.json` | Training state | JSON |
 
-### Target Discovery
+## Agent Integration Paths
 
-In addition to static targets, Panopticon supports dynamic target discovery for container orchestrators:
+| Path | Purpose |
+|------|---------|
+| `~/.claude/agents/oracle.md` | Oracle agent definition |
+| `~/.claude/agents/smith.md` | Smith agent definition |
+| `~/.claude/agents/trinity.md` | Trinity agent definition |
+| `~/Zulip/bots/oracle-zuliprc` | Oracle's Zulip credentials |
+| `~/.cortex/trinity/` | Trinity optimization hints |
+| `~/.notebooklm-mcp/auth.json` | NotebookLM authentication cache |
+| `~/.notebooklm-mcp/refresh_tokens.sh` | Cookie refresh script |
 
-```yaml
-scrape:
-  discovery:
-    docker:
-      enabled: true
-      host: unix:///var/run/docker.sock
-      label_filter: "panopticon.scrape=true"
-      port_label: "panopticon.port"
-      interval_label: "panopticon.interval"
+## Complete Environment Variable Reference
 
-    kubernetes:
-      enabled: false
-      namespace: ""                  # Empty = all namespaces
-      annotation_prefix: "panopticon.io"
-```
-
-## Logging Configuration
-
-```yaml
-logging:
-  level: info                        # trace, debug, info, warn, error
-  format: json                       # json or text
-  output: stderr                     # stderr, stdout, or file path
-  file:
-    max_size: 100MB                  # Maximum log file size before rotation
-    max_files: 5                     # Number of rotated files to keep
-    compress: true                   # Compress rotated files
-```
-
-## Environment Variable Overrides
-
-Any configuration key can be overridden using an environment variable. The mapping uses uppercase letters with underscores replacing dots and nested keys:
-
-```bash
-# server.ingestion_port -> PANOPTICON_SERVER_INGESTION_PORT
-PANOPTICON_SERVER_INGESTION_PORT=9091
-
-# storage.retention.hot -> PANOPTICON_STORAGE_RETENTION_HOT
-PANOPTICON_STORAGE_RETENTION_HOT=72h
-
-# processing.alerting.enabled -> PANOPTICON_PROCESSING_ALERTING_ENABLED
-PANOPTICON_PROCESSING_ALERTING_ENABLED=true
-```
-
-Environment variables take precedence over the configuration file. This is useful for container deployments where you want a base configuration file with per-environment overrides.
-
-## Complete Example
-
-<Tabs items={["Development", "Production"]}>
-  <Tab value="Development">
-    ```yaml title="config/panopticon-dev.yaml"
-    server:
-      ingestion_port: 9091
-      query_port: 9090
-      mode: standalone
-      hot_reload: true
-      rate_limit:
-        ingest: 50000
-        query: 500
-
-    storage:
-      data_dir: /tmp/panopticon-dev
-      retention:
-        hot: 24h
-        warm: 168h
-        cold: 720h
-      compaction:
-        enabled: false
-
-    processing:
-      aggregation:
-        enabled: true
-        windows: [1m, 5m]
-      anomaly_detection:
-        enabled: false
-      alerting:
-        enabled: false
-
-    scrape:
-      targets:
-        - url: http://localhost:9090/metrics
-          interval: 15s
-
-    logging:
-      level: debug
-      format: text
+<Tabs items={["Required", "Optional"]}>
+  <Tab value="Required">
+    ```bash
+    # At least one Gemini key is required
+    export GEMINI_API_KEY="AIzaSy..."
+    # OR
+    export GEMINI_API_KEYS="key1,key2,key3"
     ```
   </Tab>
-  <Tab value="Production">
-    ```yaml title="config/panopticon-prod.yaml"
-    server:
-      ingestion_port: 9091
-      query_port: 9090
-      mode: standalone
-      max_connections: 5000
-      auth:
-        enabled: true
-        token_file: /etc/panopticon/tokens
-      tls:
-        enabled: true
-        cert_file: /etc/panopticon/tls/cert.pem
-        key_file: /etc/panopticon/tls/key.pem
-      rate_limit:
-        ingest: 100000
-        query: 1000
-        admin: 50
+  <Tab value="Optional">
+    ```bash
+    # Temporal (defaults shown)
+    export TEMPORAL_ADDRESS="localhost:7233"
+    export TEMPORAL_NAMESPACE="default"
+    export PANOPTICON_TASK_QUEUE="panopticon-tasks"
 
-    storage:
-      data_dir: /var/lib/panopticon
-      retention:
-        hot: 48h
-        warm: 720h
-        cold: 8760h
-      block_size: 2h
-      compaction:
-        enabled: true
-        interval: 1h
-        max_concurrent: 4
-      wal:
-        sync_on_write: true
-        checkpoint_interval: 2m
+    # REST API
+    export PANOPTICON_API_PORT="8043"
 
-    processing:
-      aggregation:
-        enabled: true
-        windows: [1m, 5m, 1h, 1d]
-      anomaly_detection:
-        enabled: true
-        baseline_period: 48h
-        z_score_threshold: 3.5
-      alerting:
-        enabled: true
-        evaluation_interval: 10s
-        notification_channels:
-          - name: pagerduty
-            type: webhook
-            url: https://events.pagerduty.com/integration/xxx
-          - name: slack-ops
-            type: webhook
-            url: https://hooks.slack.com/services/xxx
-
-    scrape:
-      global:
-        scrape_interval: 30s
-      discovery:
-        kubernetes:
-          enabled: true
-          annotation_prefix: panopticon.io
-
-    logging:
-      level: info
-      format: json
-      file:
-        max_size: 100MB
-        max_files: 10
-        compress: true
+    # Additional Gemini keys
+    export VERTEX_API_KEYS="vertex-key-1,vertex-key-2"
     ```
   </Tab>
 </Tabs>
 
 ## Validation
 
-Panopticon validates the configuration file at startup and reports all errors before exiting. You can also validate a configuration file without starting the server:
+Panopticon validates server configurations when loading `servers.yaml`. A server entry is valid if it has a non-empty `command` field. Invalid entries are silently skipped during schema discovery.
 
-```bash
-panopticon config validate --config /path/to/config.yaml
-```
+The guardrail policy defaults to `MEDIUM` if `guardrails.yaml` is missing or unparseable. The catalog defaults to an empty state if `catalog.json` is missing.
 
-This is useful in CI pipelines to catch configuration errors before deployment.
+<Callout type="info">
+There is no `panopticon config validate` command yet. Configuration errors surface at runtime when a specific feature is used. The health check (`panopticon health`) is the best way to verify your configuration is working correctly.
+</Callout>
 
 ## Next Steps
 
@@ -435,10 +319,7 @@ This is useful in CI pipelines to catch configuration errors before deployment.
   <Card title="Quickstart" href="/docs/panopticon/quickstart">
     Apply these configuration options in a working local setup.
   </Card>
-  <Card title="API Reference" href="/docs/panopticon/api-reference">
-    Use the management API to inspect and update configuration at runtime.
-  </Card>
-  <Card title="Architecture" href="/docs/panopticon/architecture">
-    Understand how each configuration section maps to the internal subsystems.
+  <Card title="Deployment" href="/docs/panopticon/deployment">
+    Configure Panopticon for production with systemd services and monitoring.
   </Card>
 </Cards>

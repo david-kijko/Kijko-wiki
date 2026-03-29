@@ -1,0 +1,569 @@
+---
+title: The 7 Agents
+description: "Deep dive into each pipeline agent: Audit, IA, Writer, Verifier, QA, Monitor, and Publish -- with implementation details from the actual source code"
+icon: Users
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Step, Steps } from 'fumadocs-ui/components/steps'
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion'
+
+Every agent in the Panopticon 2.0 pipeline implements the same `PipelineAgent` interface: a `name` property and an `execute(context)` method that returns an `AgentResult`. Each agent is a standalone class in `apps/agent/src/lib/pipeline/agents/`. This page documents what each agent does, what it reads from context, what it produces, and how it degrades when dependencies are unavailable.
+
+```typescript
+// apps/agent/src/lib/pipeline/types.ts
+interface PipelineAgent {
+  name: string;
+  execute(context: AgentContext): Promise<AgentResult>;
+}
+```
+
+## Phase 1: Audit Agent
+
+**File**: `apps/agent/src/lib/pipeline/agents/audit-agent.ts` (216 lines)
+
+The Audit Agent scans the repository for documentation gaps by comparing exported code symbols against existing wiki pages. It is the first agent in the chain and has no hard dependencies on previous phases.
+
+### How It Works
+
+<Steps>
+  <Step>
+    **Build symbol inventory** -- Uses CodeGraph MCP data when available. Falls back to file-tree scanning with regex extraction when CodeGraph is unavailable.
+  </Step>
+  <Step>
+    **Build existing page set** -- Normalizes all existing page slugs to lowercase for fuzzy matching.
+  </Step>
+  <Step>
+    **Identify gaps** -- Filters exported symbols that have no corresponding wiki page. Classifies each gap by importance: classes and interfaces are `high`, functions are `medium`, types and variables are `low`.
+  </Step>
+  <Step>
+    **Detect stale pages** -- Flags pages whose slug parts reference symbols that no longer exist in the codebase.
+  </Step>
+  <Step>
+    **Compute coverage score** -- `documentedSymbols / totalExportedSymbols`, rounded to two decimal places.
+  </Step>
+</Steps>
+
+### Fallback: File-Tree Scanning
+
+When CodeGraph is unavailable, the audit agent walks the file tree (up to depth 8, skipping `node_modules`, `.git`, `dist`, `build`, `.next`) and extracts symbols using regex patterns:
+
+```typescript
+// apps/agent/src/lib/pipeline/agents/audit-agent.ts
+const CODE_EXTENSIONS = new Set([
+  ".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".java", ".rs",
+]);
+
+const EXPORT_PATTERNS = [
+  /export\s+(?:default\s+)?(?:function|class|interface|type|const|let|var|enum)\s+(\w+)/g,
+  /^(?:class|def)\s+([A-Z]\w+|[a-z]\w+)\s*[\((:]/gm,
+];
+```
+
+The first pattern captures TypeScript/JavaScript exports. The second captures Python class and function definitions (public by naming convention).
+
+### Output: AuditArtifacts
+
+```typescript
+interface AuditArtifacts {
+  gaps: Array<{ symbol: string; kind: string; importance: "high" | "medium" | "low" }>;
+  contradictions: Array<{ subject: string; pages: string[]; detail: string }>;
+  coverageScore: number;        // 0.0 to 1.0
+  stalePages: Array<{ slug: string; reason: string }>;
+  existingPageCount: number;
+  codeSymbolCount: number;
+}
+```
+
+### Importance Classification
+
+```typescript
+// apps/agent/src/lib/pipeline/agents/audit-agent.ts
+private classifyImportance(sym: CodeGraphSymbol): string {
+  if (sym.kind === "class" || sym.kind === "interface") return "high";
+  if (sym.kind === "function") return "medium";
+  return "low";
+}
+```
+
+---
+
+## Phase 2: IA Agent (Information Architecture)
+
+**File**: `apps/agent/src/lib/pipeline/agents/ia-agent.ts` (331 lines)
+
+The IA Agent takes the audit report and generates a full information architecture: page taxonomy, sidebar structure, content outlines, and generation order. It is a deterministic planner with no LLM calls.
+
+### How It Works
+
+<Steps>
+  <Step>
+    **Read audit results** -- Extracts `AuditArtifacts` from the pipeline state. Fails if audit phase did not complete.
+  </Step>
+  <Step>
+    **Classify repo complexity** -- Based on symbol count: `<50` is small, `<200` is medium, `200+` is large. This sets page count caps.
+  </Step>
+  <Step>
+    **Generate page plan** -- Ensures landing and quickstart pages exist. Maps high-importance gaps to concept pages, medium-importance to guide pages, and classes/interfaces to API reference pages.
+  </Step>
+  <Step>
+    **Sort by generation order** -- Pages are ordered so landing pages are generated first, then concepts, then guides, then reference. This ensures cross-link targets exist when later pages reference them.
+  </Step>
+  <Step>
+    **Build sidebar structure** -- Creates Fumadocs `meta.json` format with root pages, section directories, and per-section page ordering.
+  </Step>
+</Steps>
+
+### Section Taxonomy
+
+The IA agent maps each page type to a fixed section:
+
+```typescript
+// apps/agent/src/lib/pipeline/agents/ia-agent.ts
+const TYPE_TO_SECTION: Record<PageType, string> = {
+  landing_overview: "index",
+  quickstart_tutorial: "getting-started",
+  concept_explainer: "concepts",
+  integration_guide: "integrations",
+  connector_guide: "integrations",
+  api_reference: "api-reference",
+  cookbook_recipe: "cookbook",
+  reference_spec: "reference",
+  migration_guide: "migration",
+  feature_guide: "guides",
+};
+```
+
+### Word Count Targets
+
+Each page type has a word count target that the Writer agent uses for content length guidance:
+
+| Page Type | Target Words |
+|---|---|
+| `landing_overview` | 600 |
+| `quickstart_tutorial` | 800 |
+| `concept_explainer` | 1,200 |
+| `integration_guide` | 1,000 |
+| `api_reference` | 1,500 |
+| `cookbook_recipe` | 800 |
+| `reference_spec` | 1,200 |
+| `feature_guide` | 1,000 |
+
+### Page Count Caps by Complexity
+
+| Complexity | Max Concepts | Max Guides | Max Reference |
+|---|---|---|---|
+| Small (`<50` symbols) | 3 | 2 | 1 |
+| Medium (`<200` symbols) | 8 | 5 | 3 |
+| Large (`200+` symbols) | 15 | 10 | 8 |
+
+### Output: IAArtifacts
+
+```typescript
+interface IAArtifacts {
+  pages: IAPage[];                           // Full page plan
+  sidebarStructure: Record<string, unknown>; // Fumadocs meta.json format
+  sectionTaxonomy: string[];                 // Unique sections in use
+  generationOrder: string[];                 // Slug order for writer
+  totalEstimatedPages: number;
+}
+```
+
+---
+
+## Phase 3: Writer Agent
+
+**File**: `apps/agent/src/lib/pipeline/agents/writer-agent.ts` (268 lines)
+
+The Writer Agent generates MDX content for each planned page. It uses the Mastra wiki-agent for LLM-powered generation when available, and falls back to structured skeleton templates when the LLM is unavailable.
+
+### How It Works
+
+<Steps>
+  <Step>
+    **Read IA blueprint** -- Extracts `IAArtifacts` from the pipeline state. Fails if the IA phase did not complete.
+  </Step>
+  <Step>
+    **Iterate in generation order** -- Pages are generated in the IA-specified order so that landing pages exist before concepts reference them.
+  </Step>
+  <Step>
+    **Generate content** -- For each page, either call the Mastra agent with a structured prompt, or build a skeleton template with section headings and `[LINK:slug]` placeholders.
+  </Step>
+  <Step>
+    **Wrap as full MDX** -- Adds frontmatter (title, description, page_type, audience, tags) and component imports to the generated body content.
+  </Step>
+  <Step>
+    **Collect cross-link placeholders** -- Scans generated content for `[LINK:slug]` patterns that the QA agent will resolve.
+  </Step>
+</Steps>
+
+### Page Type Section Templates
+
+Each page type has a predefined section structure:
+
+```typescript
+// apps/agent/src/lib/pipeline/agents/writer-agent.ts
+const PAGE_TYPE_SECTIONS: Record<PageType, string[]> = {
+  landing_overview: ["Overview", "What Lives Here", "How It Works", "Next Steps"],
+  quickstart_tutorial: ["Overview", "Prerequisites", "Steps", "Verification", "Next Steps"],
+  concept_explainer: ["Overview", "Why It Matters", "Practical Reading", "Example", "Next Steps"],
+  reference_spec: ["Role", "Participants", "Protocol Details", "Failure Modes", "Example", "Related Pages"],
+  feature_guide: ["Overview", "Key Features", "Usage", "Configuration", "Best Practices", "Next Steps"],
+  // ... and 5 more types
+};
+```
+
+### Cross-Link Placeholder System
+
+The Writer generates `[LINK:slug]` placeholders instead of resolved links. This allows pages to reference other pages that may not exist yet (they are being generated in the same pipeline run). The QA agent resolves these placeholders:
+
+```typescript
+// Placeholder in Writer output:
+// See [LINK:concepts/pipeline-orchestrator] for architecture details.
+
+// Resolved by QA to:
+// See [Pipeline Orchestrator](/docs/concepts/pipeline-orchestrator) for architecture details.
+```
+
+### Skeleton Fallback
+
+When the Mastra LLM agent is unavailable, the Writer builds skeleton pages with section headings, pending-content markers, and Cards components for the Next Steps section:
+
+```typescript
+// apps/agent/src/lib/pipeline/agents/writer-agent.ts
+private buildSkeletonPage(page: IAPage, allSlugs: Set<string>): string {
+  const sections = PAGE_TYPE_SECTIONS[page.pageType] || ["Overview", "Details"];
+  const bodyLines = [
+    `{/* AUTO-GENERATED SKELETON -- Replace with real content */}`,
+  ];
+  for (const section of sections) {
+    bodyLines.push(`## ${section}`);
+    if (section === "Next Steps" && relatedPages.length > 0) {
+      bodyLines.push(`<Cards>`, /* ... card per related page ... */, `</Cards>`);
+    } else {
+      bodyLines.push(`_Content pending -- this section covers ${section.toLowerCase()}._`);
+    }
+  }
+  return this.wrapAsFullMdx(page, bodyLines.join("\n"));
+}
+```
+
+### Output: WriterArtifacts
+
+```typescript
+interface WriterArtifacts {
+  generatedPages: Array<{
+    slug: string;
+    title: string;
+    pageType: PageType;
+    mdxContent: string;
+    wordCount: number;
+  }>;
+  crossLinkPlaceholders: Array<{ slug: string; placeholder: string }>;
+}
+```
+
+---
+
+## Phase 4: Verifier Agent
+
+**File**: `apps/agent/src/lib/pipeline/agents/verifier-agent.ts` (239 lines)
+
+The Verifier Agent extracts code blocks from generated MDX pages and validates them. It checks syntax for TypeScript/JavaScript and JSON, and verifies that referenced file paths exist in the repository.
+
+<Callout type="info">
+The Verifier always returns `success: true`. It reports issues but does not block the pipeline. This is a deliberate design choice: verification findings are advisory, and the QA agent makes the final quality decision.
+</Callout>
+
+### Validation Strategies
+
+<Tabs items={["TypeScript/JS", "JSON", "File Paths"]}>
+  <Tab value="TypeScript/JS">
+    Basic syntax validation without a full compiler:
+    - Balanced brackets, braces, and parentheses (with string-stripping to avoid false positives)
+    - Unterminated template literals (unbalanced backticks)
+    - Intentional ellipsis placeholders (`// ...`) are allowed
+
+    ```typescript
+    // apps/agent/src/lib/pipeline/agents/verifier-agent.ts
+    private validateJsTsSyntax(code: string): { valid: boolean; error?: string } {
+      const balanceCheck = this.checkBracketBalance(code);
+      if (!balanceCheck.valid) return balanceCheck;
+
+      const backtickCount = (code.match(/(?<!\\)`/g) || []).length;
+      if (backtickCount % 2 !== 0) {
+        return { valid: false, error: "Unterminated template literal" };
+      }
+      return { valid: true };
+    }
+    ```
+  </Tab>
+  <Tab value="JSON">
+    Uses `JSON.parse()` for full validation:
+
+    ```typescript
+    if (normalizedLang === "json") {
+      try {
+        JSON.parse(code);
+        return { valid: true };
+      } catch (error) {
+        return { valid: false, error: `Invalid JSON: ${message}` };
+      }
+    }
+    ```
+  </Tab>
+  <Tab value="File Paths">
+    Extracts file path references from `title="path/to/file.ts"` patterns in code blocks and checks they exist on disk:
+
+    ```typescript
+    // apps/agent/src/lib/pipeline/agents/verifier-agent.ts
+    private extractFilePathRefs(mdx: string): string[] {
+      const refs: string[] = [];
+      const titlePattern = /title="([^"]+\.\w+)"/g;
+      // Only includes relative paths (not absolute or URLs)
+      // ...
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Output: VerifierArtifacts
+
+```typescript
+interface VerifierArtifacts {
+  snippets: Array<{
+    slug: string;
+    language: string;
+    code: string;
+    status: "passed" | "failed" | "skipped";
+    error?: string;
+    correctedCode?: string;
+  }>;
+  passRate: number;       // 0.0 to 1.0
+  totalSnippets: number;
+}
+```
+
+---
+
+## Phase 5: QA Agent
+
+**File**: `apps/agent/src/lib/pipeline/agents/qa-agent.ts` (300 lines)
+
+The QA Agent performs comprehensive quality checks on all generated pages. It is the final quality gate before content reaches the Publish agent.
+
+### Five Check Categories
+
+<Accordions>
+  <Accordion title="1. Frontmatter Completeness">
+    Checks that every page has the four required frontmatter fields:
+
+    ```typescript
+    const REQUIRED_FRONTMATTER = ["title", "description", "page_type", "audience"];
+    ```
+
+    Pages missing frontmatter entirely get all four fields flagged. Pages with partial frontmatter get only the missing fields reported.
+  </Accordion>
+
+  <Accordion title="2. Heading Hierarchy">
+    Validates that headings do not skip levels (e.g., H2 followed by H4). Also flags H1 headings in the body -- the only H1 should come from the frontmatter title.
+
+    ```typescript
+    // Heading validation logic
+    if (prevLevel > 0 && level > prevLevel + 1) {
+      issues.push({
+        slug,
+        message: `Heading level skipped: H${prevLevel} to H${level} at "${text}"`,
+      });
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="3. Internal Link Validation">
+    Extracts all `href="/docs/..."` patterns and checks them against the set of known page slugs (existing pages + newly generated pages):
+
+    ```typescript
+    const INTERNAL_LINK_REGEX = /href="(\/docs\/[^"]+)"/g;
+    // Converts /docs/concepts/foo -> concepts/foo and checks against knownSlugs
+    ```
+  </Accordion>
+
+  <Accordion title="4. Content Length">
+    Compares actual word count against the IA agent's target. Pages below 50% of their target are flagged:
+
+    ```typescript
+    if (target && page.wordCount < target * 0.5) {
+      contentLengthIssues.push({ slug: page.slug, actual: page.wordCount, target });
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="5. Cross-Link Placeholder Resolution">
+    Resolves `[LINK:slug]` placeholders to actual MDX links. Known slugs become proper links. Unknown slugs are marked with an `{/* UNRESOLVED */}` comment:
+
+    ```typescript
+    // Known slug -> resolved link
+    "[LINK:concepts/foo]" -> "[Foo](/docs/concepts/foo)"
+
+    // Unknown slug -> marked unresolved
+    "[LINK:unknown-page]" -> "[unknown-page](#) {/* UNRESOLVED: page not found */}"
+    ```
+  </Accordion>
+</Accordions>
+
+### Quality Score
+
+The overall score is computed as:
+
+```
+overallScore = (totalChecks - issueCount) / totalChecks
+```
+
+Where `totalChecks` = number of pages x 4 check categories, and `issueCount` is the total number of issues across all categories.
+
+### Output: QAArtifacts
+
+```typescript
+interface QAArtifacts {
+  brokenLinks: Array<{ source: string; target: string; type: "internal" | "external" }>;
+  headingIssues: Array<{ slug: string; message: string }>;
+  frontmatterIssues: Array<{ slug: string; missing: string[] }>;
+  resolvedPlaceholders: Array<{ slug: string; placeholder: string; resolved: string }>;
+  contentLengthIssues: Array<{ slug: string; actual: number; target: number }>;
+  overallScore: number;
+  correctedPages: Array<{ slug: string; mdxContent: string }>;
+}
+```
+
+---
+
+## Phase 6: Monitor Agent
+
+**File**: `apps/agent/src/lib/pipeline/agents/monitor-agent.ts` (172 lines)
+
+The Monitor Agent compares published wiki state against current code state to detect documentation drift. It scores freshness per page and identifies pages needing re-generation.
+
+### Staleness Scoring
+
+Each page gets a staleness score from 0.0 (fresh) to 1.0 (stale), computed from two factors:
+
+```typescript
+// Age factor (60% weight)
+// Pages > 30 days old start getting stale
+// Pages > 90 days are at maximum staleness
+let ageFactor = 0;
+if (daysSinceUpdate > 90) ageFactor = 1;
+else if (daysSinceUpdate > 30) ageFactor = (daysSinceUpdate - 30) / 60;
+
+// Code change factor (40% weight)
+// Counts symbols referenced in the page that exist in CodeGraph
+codeChangeFactor = Math.min(codeChanges / 10, 1) * 0.5;
+
+stalenessScore = ageFactor * 0.6 + codeChangeFactor * 0.4;
+```
+
+Pages with a staleness score >= 0.7 trigger a `"regenerate"` recommendation. Scores >= 0.4 trigger `"review"`. Below 0.4 is `"ok"`.
+
+### Feedback Loop
+
+The Monitor agent's `reauditTriggers` output can feed back into the orchestrator to start a new incremental pipeline run. Newly generated pages in the current run are automatically scored with staleness 0 (fresh).
+
+### Output: MonitorArtifacts
+
+```typescript
+interface MonitorArtifacts {
+  driftReport: Array<{
+    slug: string;
+    stalenessScore: number;
+    lastUpdated: string;
+    codeChanges: number;
+    recommendation: "ok" | "review" | "regenerate";
+  }>;
+  reauditTriggers: string[];
+  averageFreshness: number;  // 0.0 to 1.0 (1.0 = all pages fresh)
+}
+```
+
+---
+
+## Phase 7: Publish Agent
+
+**File**: `apps/agent/src/lib/pipeline/agents/publish-agent.ts` (261 lines)
+
+The Publish Agent writes validated MDX content to disk, persists page metadata to SQLite, and regenerates sidebar navigation configs. It is the only agent that performs side effects (file writes and database operations).
+
+### What It Does
+
+<Steps>
+  <Step>
+    **Resolve wiki paths** -- Reads the wiki agent config to determine the docs root directory.
+  </Step>
+  <Step>
+    **Merge QA corrections** -- If the QA agent produced corrected pages (with resolved cross-link placeholders), those override the original Writer output.
+  </Step>
+  <Step>
+    **Write MDX files** -- Creates directories as needed and writes each page to `{docsRoot}/{slug}.mdx`.
+  </Step>
+  <Step>
+    **Persist to SQLite** -- Saves each page as a `WikiPage` record in the `AppDatabase`, including metadata, word count, and timestamps.
+  </Step>
+  <Step>
+    **Generate per-directory meta.json** -- Creates sidebar navigation configs for each subdirectory containing published pages.
+  </Step>
+  <Step>
+    **Sync Fumadocs root navigation** -- Merges existing DB pages with newly published pages and calls `syncFumadocsNav()` to update the root `meta.json`.
+  </Step>
+</Steps>
+
+### File Layout
+
+```
+wiki-content/docs/
+  {slug}.mdx                    # Top-level pages
+  {repo}/{page}.mdx             # Repo sub-pages
+  {repo}/meta.json              # Per-repo sidebar ordering
+  meta.json                     # Root sidebar
+```
+
+### Output: PublishArtifacts
+
+```typescript
+interface PublishArtifacts {
+  writtenFiles: string[];          // Absolute paths of written MDX files
+  updatedNavConfigs: string[];     // Absolute paths of updated meta.json files
+  savedToDb: number;               // Count of pages saved to SQLite
+  errors: string[];                // Non-fatal errors encountered
+}
+```
+
+<Callout type="warn">
+The Publish agent considers itself successful if at least one file was written, even if some individual page writes or DB saves failed. Non-fatal errors are collected in the `errors` array of `PublishArtifacts` rather than causing the entire phase to fail.
+</Callout>
+
+## Agent Summary Table
+
+| Phase | Agent | LLM Calls | File I/O | DB Writes | Hard Deps | Lines |
+|---|---|---|---|---|---|---|
+| 1 | Audit | 0 | Read (file tree scan) | No | None | 216 |
+| 2 | IA | 0 | No | No | Audit | 331 |
+| 3 | Writer | 0-N (via Mastra) | No | No | IA | 268 |
+| 4 | Verifier | 0 | Read (path checks) | No | Writer | 239 |
+| 5 | QA | 0 | No | No | Writer | 300 |
+| 6 | Monitor | 0 | Read (page files) | No | None | 172 |
+| 7 | Publish | 0 | Write (MDX + meta.json) | Yes (SQLite) | Writer | 261 |
+
+## Next Steps
+
+<Cards>
+  <Card title="MCP Integration" href="/docs/panopticon-2.0/mcp-integration">
+    How agents use CodeGraph, CGC, and NotebookLM MCP tools with circuit breakers and fallbacks.
+  </Card>
+  <Card title="State Persistence" href="/docs/panopticon-2.0/state-persistence">
+    How pipeline state flows between agents and enables resume-on-failure.
+  </Card>
+  <Card title="API Reference" href="/docs/panopticon-2.0/api-reference">
+    Complete type definitions for all agent artifact types and the AgentContext interface.
+  </Card>
+</Cards>

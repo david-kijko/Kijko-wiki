@@ -1,286 +1,313 @@
 ---
 title: Quickstart
-description: "Get Panopticon running locally in under five minutes with Docker Compose and push your first metric"
+description: "Get Panopticon running with Docker Compose, build the tool catalog, and execute your first MCP tool call in under five minutes"
 icon: Rocket
 ---
 
-This guide walks you through a complete Panopticon setup on your local machine. By the end, you will have the ingestion API accepting metrics, the query API serving dashboard requests, and a sample scrape target feeding data into the system. The entire process takes less than five minutes if you already have Docker installed.
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Step, Steps } from 'fumadocs-ui/components/steps'
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion'
+
+This guide walks you through a complete Panopticon setup on your local machine. By the end, you will have the Temporal infrastructure running, the HyperVisa video catalog built, and a tool call executing through the durable pipeline. The entire process takes less than five minutes if you already have Docker and Python installed.
 
 ## Prerequisites
 
 <Callout type="info" title="Before you begin">
-  - **Docker** (20.10 or later) and **Docker Compose** (v2) installed and running
-  - **curl** or **httpie** for testing API endpoints
-  - **Node.js 18+** if you want to run the sample instrumentation script
-  - At least **2 GB of free RAM** for the standalone container
+  - **Python 3.12+** installed
+  - **Docker** and **Docker Compose** (v2) installed and running
+  - **At least one Gemini API key** (Google AI Studio or Vertex AI Express)
+  - At least **2 GB of free RAM** for the Temporal infrastructure
+  - At least one downstream MCP server registered (e.g., Firecrawl, Exa)
 </Callout>
 
 ## Setup
 
 <Steps>
   <Step>
-    ### Clone and navigate to the workspace
+    ### Clone the repository and install
 
-    Start by cloning the Kijko Docs repository if you have not already. The Panopticon configuration lives alongside the rest of the workspace infrastructure.
-
-    ```bash
-    git clone https://github.com/kijko-ai/Kijko_Docs.git
-    cd Kijko_Docs
-    ```
-
-    If you already have the repository cloned, make sure you are on the latest main branch:
+    Clone the Panopticon repository and install it as an editable Python package:
 
     ```bash
-    git pull origin main
+    git clone https://github.com/kijko-ai/Panopticon.git
+    cd Panopticon
+    pip install -e .
     ```
 
-    The workspace root contains the Docker Compose files and configuration directories that Panopticon expects. Running from the workspace root ensures that volume mounts and relative paths resolve correctly.
+    This installs the `panopticon` CLI command and all Python dependencies: Click, PyYAML, temporalio, mcp, google-genai, Flask, and HyperVisa.
+
+    Verify the installation:
+
+    ```bash
+    panopticon --version
+    # panopticon, version 0.1.0
+    ```
   </Step>
 
   <Step>
-    ### Create the configuration file
+    ### Start the Temporal infrastructure
 
-    Panopticon reads its configuration from a YAML file at startup. The full configuration reference is in the [Configuration](/docs/panopticon/configuration) page. Create a minimal configuration that enables the ingestion API, the query API, and a self-monitoring scrape target.
+    Panopticon requires a running Temporal server for durable workflow execution. The included Docker Compose file sets up PostgreSQL, Temporal Server, and the Temporal Web UI:
 
-    <Tabs items={["Minimal Config", "Full Config"]}>
-      <Tab value="Minimal Config">
-        ```yaml title="config/panopticon.yaml"
-        server:
-          ingestion_port: 9091
-          query_port: 9090
-          mode: standalone
+    ```bash
+    docker compose up -d
+    ```
 
-        storage:
-          data_dir: /var/lib/panopticon
-          retention:
-            hot: 48h
-            warm: 720h
-            cold: 8760h
+    This starts three containers:
+    - **PostgreSQL 15** -- Temporal's persistence backend
+    - **Temporal Server** -- gRPC frontend on port 7233
+    - **Temporal UI** -- Web dashboard on port 8233
 
-        scrape:
-          targets:
-            - url: http://localhost:9090/metrics
-              interval: 15s
-              labels:
-                service: panopticon
-                environment: local
+    Wait for Temporal to become healthy (about 30 seconds on first start):
+
+    ```bash
+    docker compose ps
+    ```
+
+    You should see all three services as "Up (healthy)". Open `http://localhost:8233` in your browser to verify the Temporal UI is accessible.
+  </Step>
+
+  <Step>
+    ### Configure Gemini API keys
+
+    Panopticon uses Gemini for visual catalog search. Set your API key(s) as environment variables:
+
+    <Tabs items={["Single Key", "Multiple Keys", "Mixed Keys"]}>
+      <Tab value="Single Key">
+        ```bash
+        export GEMINI_API_KEY="AIzaSy..."
         ```
-        This minimal configuration runs all subsystems in a single process, stores data locally, and scrapes its own metrics endpoint every 15 seconds. The three retention tiers give you 48 hours of full-resolution data, 30 days of 1-minute downsampled data, and 365 days of hourly aggregates.
       </Tab>
-      <Tab value="Full Config">
-        ```yaml title="config/panopticon.yaml"
-        server:
-          ingestion_port: 9091
-          query_port: 9090
-          mode: standalone
-          max_connections: 1000
-          read_timeout: 30s
-          write_timeout: 10s
-
-        storage:
-          data_dir: /var/lib/panopticon
-          retention:
-            hot: 48h
-            warm: 720h
-            cold: 8760h
-          block_size: 2h
-          compaction:
-            enabled: true
-            interval: 1h
-
-        processing:
-          aggregation:
-            enabled: true
-            windows: [1m, 5m, 1h]
-          anomaly_detection:
-            enabled: true
-            baseline_period: 24h
-            z_score_threshold: 3.5
-          alerting:
-            enabled: true
-            evaluation_interval: 10s
-
-        scrape:
-          targets:
-            - url: http://localhost:9090/metrics
-              interval: 15s
-              labels:
-                service: panopticon
-                environment: local
-
-        logging:
-          level: info
-          format: json
+      <Tab value="Multiple Keys">
+        ```bash
+        # Comma-separated for round-robin rotation
+        export GEMINI_API_KEYS="AIzaSy...key1,AIzaSy...key2,AIzaSy...key3"
         ```
-        The full configuration exposes all available options including compaction, aggregation windows, anomaly detection, and alerting. See the [Configuration](/docs/panopticon/configuration) reference for detailed documentation of each setting.
+      </Tab>
+      <Tab value="Mixed Keys">
+        ```bash
+        # Regular + Vertex AI Express keys
+        export GEMINI_API_KEYS="AIzaSy...regular1,AIzaSy...regular2"
+        export VERTEX_API_KEYS="vertex-key-1,vertex-key-2"
+        ```
       </Tab>
     </Tabs>
+
+    Multiple keys enable automatic failover: if one key hits the rate limit, Panopticon rotates to the next key with zero downtime.
   </Step>
 
   <Step>
-    ### Start Panopticon with Docker Compose
+    ### Register MCP servers
 
-    Launch the standalone container using Docker Compose. The compose file maps the configuration file into the container and exposes the two API ports.
-
-    ```bash
-    docker compose up -d panopticon
-    ```
-
-    If you do not have a `docker-compose.yml` entry for Panopticon yet, add this to your existing compose file:
-
-    ```yaml title="docker-compose.yml"
-    services:
-      panopticon:
-        image: kijko/panopticon:latest
-        ports:
-          - "9090:9090"
-          - "9091:9091"
-        volumes:
-          - ./config/panopticon.yaml:/etc/panopticon/config.yaml
-          - panopticon-data:/var/lib/panopticon
-        environment:
-          - PANOPTICON_MODE=standalone
-        restart: unless-stopped
-
-    volumes:
-      panopticon-data:
-    ```
-
-    After starting, check the container logs to confirm a clean startup:
+    Register the downstream MCP servers that Panopticon will manage. Each server needs a name, a command to start it, and any required arguments:
 
     ```bash
-    docker compose logs panopticon --tail 20
+    # Example: Register Firecrawl MCP server
+    panopticon register firecrawl npx -a @anthropic/firecrawl-mcp
+
+    # Example: Register Exa MCP server
+    panopticon register exa npx -a @anthropic/exa-mcp
+
+    # Example: Register a custom Python MCP server
+    panopticon register my-tools python -a /path/to/my_mcp_server.py
     ```
 
-    You should see output indicating that the ingestion and query servers are listening:
+    Server configurations are stored at `~/.panopticon/servers.yaml`. You can also edit this file directly:
+
+    ```yaml title="~/.panopticon/servers.yaml"
+    servers:
+      firecrawl:
+        command: npx
+        args: ["@anthropic/firecrawl-mcp"]
+        env:
+          FIRECRAWL_API_KEY: "fc-..."
+        enabled: true
+      exa:
+        command: npx
+        args: ["@anthropic/exa-mcp"]
+        env:
+          EXA_API_KEY: "exa-..."
+        enabled: true
+    ```
+  </Step>
+
+  <Step>
+    ### Build the tool catalog
+
+    Discover tools from all registered MCP servers and build the HyperVisa video catalog:
+
+    ```bash
+    panopticon discover --rebuild
+    ```
+
+    This performs four steps:
+    1. Starts each registered MCP server temporarily
+    2. Sends a JSON-RPC `tools/list` request to fetch schemas
+    3. Renders schemas to a 1fps MP4 video using HyperVisa
+    4. Uploads the video to the Gemini File API
+
+    Expected output:
 
     ```text
-    panopticon  | level=info msg="ingestion server listening" port=9091
-    panopticon  | level=info msg="query server listening" port=9090
-    panopticon  | level=info msg="scrape controller started" targets=1
+    Catalog built: 47 tools from 3 servers
+    Video: /home/user/.panopticon/catalog.mp4
+    Gemini: files/abc123xyz
     ```
+
+    The catalog persists in the Gemini File API until explicitly deleted. You only need to rebuild it when you add or remove MCP servers.
   </Step>
 
   <Step>
-    ### Push your first metric
+    ### Start the Temporal worker
 
-    Use curl to send a test metric to the ingestion API. This verifies that the ingestion endpoint is accepting data and the write path is functioning.
+    The worker process handles all durable workflow execution. Start it in a separate terminal:
 
-    <Tabs items={["curl", "httpie", "Node.js"]}>
-      <Tab value="curl">
+    ```bash
+    panopticon worker
+    ```
+
+    Expected output:
+
+    ```text
+    2026-03-29 10:15:00 panopticon.worker INFO Connecting to Temporal at localhost:7233 (ns=default)
+    2026-03-29 10:15:00 panopticon.worker INFO Worker started on queue 'panopticon-tasks' with Nexus service
+    ```
+
+    Keep this terminal running. The worker must be active for any tool execution to work.
+  </Step>
+
+  <Step>
+    ### Execute your first tool call
+
+    Now test the complete pipeline. Use the CLI to search for a tool and execute it:
+
+    <Tabs items={["Browse First", "Smart Execute", "Raw Execute"]}>
+      <Tab value="Browse First">
         ```bash
-        curl -X POST http://localhost:9091/api/v1/ingest \
-          -H "Content-Type: application/json" \
-          -d '{
-            "samples": [
-              {
-                "metric": "test_counter_total",
-                "labels": { "env": "local", "service": "quickstart" },
-                "timestamp": '"$(date +%s000)"',
-                "value": 42
-              }
-            ],
-            "source": "quickstart-guide"
-          }'
+        # Step 1: Find tools for web scraping
+        panopticon browse "web scraping"
+
+        # Output:
+        #   firecrawl.scrape (confidence: 95%)
+        #     Scrape a single URL and return its content
+        #   exa.get_contents (confidence: 72%)
+        #     Get the contents of a URL
+        #   firecrawl.crawl (confidence: 68%)
+        #     Crawl a website starting from a URL
+
+        # Step 2: Execute the top match
+        panopticon exec firecrawl.scrape '{"url":"https://example.com"}'
         ```
       </Tab>
-      <Tab value="httpie">
+      <Tab value="Smart Execute">
         ```bash
-        http POST http://localhost:9091/api/v1/ingest \
-          samples:='[{"metric":"test_counter_total","labels":{"env":"local","service":"quickstart"},"timestamp":'$(date +%s000)',"value":42}]' \
-          source=quickstart-guide
+        # Natural language intent -- Panopticon resolves to tool + params
+        panopticon ask "fetch the content of example.com"
+
+        # Output:
+        # Resolved: firecrawl.scrape (confidence: 95%)
+        # Params: {"url": "https://example.com"}
+        #
+        # Result:
+        # { "content": "...", "title": "Example Domain", ... }
         ```
       </Tab>
-      <Tab value="Node.js">
-        ```typescript title="push-metric.ts"
-        const payload = {
-          samples: [{
-            metric: "test_counter_total",
-            labels: { env: "local", service: "quickstart" },
-            timestamp: Date.now(),
-            value: 42,
-          }],
-          source: "quickstart-guide",
-        };
+      <Tab value="Raw Execute">
+        ```bash
+        # Direct execution with known server.tool notation
+        panopticon exec firecrawl.scrape '{"url":"https://example.com"}'
 
-        const response = await fetch("http://localhost:9091/api/v1/ingest", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-
-        console.log(`Status: ${response.status}`);
+        # Output:
+        # { "tool": "firecrawl.scrape", "result": {...}, "ok": true, "duration_ms": 2340 }
         ```
       </Tab>
     </Tabs>
-
-    A successful push returns HTTP 200 with a JSON body confirming the number of samples accepted:
-
-    ```json
-    { "accepted": 1, "rejected": 0 }
-    ```
-  </Step>
-
-  <Step>
-    ### Query the data
-
-    Verify that the metric was stored and is queryable through the query API:
-
-    ```bash
-    curl -s "http://localhost:9090/api/v1/query?q=test_counter_total&from=$(date -d '5 minutes ago' +%s000)&to=$(date +%s000)" | jq .
-    ```
-
-    The response should contain the sample you just pushed:
-
-    ```json
-    {
-      "status": "ok",
-      "data": {
-        "series": [
-          {
-            "metric": "test_counter_total",
-            "labels": { "env": "local", "service": "quickstart" },
-            "samples": [
-              { "timestamp": 1711700000000, "value": 42 }
-            ]
-          }
-        ]
-      }
-    }
-    ```
-
-    If you wait a few seconds and query again, you should also see the self-monitoring metrics from the scrape target you configured in step 2. The scrape controller writes metrics prefixed with `panopticon_` by default.
   </Step>
 </Steps>
 
 ## Verification Checklist
 
-After completing the steps above, verify your setup by confirming each of these:
+After completing the steps above, verify your setup:
 
-- The Panopticon container is running: `docker compose ps` shows it as "Up"
-- The ingestion endpoint responds: `curl -s http://localhost:9091/health` returns `\{"status":"ok"\}`
-- The query endpoint responds: `curl -s http://localhost:9090/health` returns `\{"status":"ok"\}`
-- Your test metric is queryable: the query in step 5 returns at least one data point
-- Self-monitoring is working: querying `panopticon_scrape_duration_seconds` returns data
+- Temporal containers are running: `docker compose ps` shows all three as "Up (healthy)"
+- Temporal UI is accessible: `http://localhost:8233` shows the Temporal dashboard
+- Catalog is built: `panopticon health` shows "Catalog: BUILT" with a tool count
+- Worker is connected: `panopticon health` shows "Temporal: OK"
+- MCP servers are registered: `panopticon health` lists your servers
+- Tool execution works: the `panopticon exec` or `panopticon ask` command returns a result
 
-<Callout type="warn">
-If the container fails to start, check that ports 9090 and 9091 are not already in use by another service. Prometheus commonly binds to 9090, so you may need to change the Panopticon query port if you have both running.
-</Callout>
+```bash
+panopticon health
+```
+
+Expected output:
+
+```text
+=== Panopticon Health ===
+
+Temporal: OK (localhost:7233)
+
+MCP Servers: 2
+  firecrawl: enabled (npx)
+  exa: enabled (npx)
+
+Catalog: BUILT
+  Tools: 47
+  Updated: 2026-03-29T10:15:00
+  Gemini: files/abc123xyz
+
+Total registered tools: 47
+```
+
+## Optional: Register the Nexus Endpoint
+
+If you want other Temporal namespaces to call Panopticon's tools, register the Nexus endpoint:
+
+```bash
+python -m panopticon.temporal.register_nexus
+```
+
+This creates a `panopticon` Nexus endpoint in Temporal that routes to the `panopticon-tasks` task queue.
+
+## Optional: Start the REST API
+
+For dashboard integration, start the REST API server:
+
+```bash
+panopticon api --port 8043
+```
+
+The API is now available at `http://localhost:8043/api/panopticon/health`.
+
+## Optional: MCP Server Mode
+
+To use Panopticon as an MCP server for Claude Code, start it in stdio mode:
+
+```bash
+panopticon serve
+```
+
+Add this to your Claude Code MCP configuration to give Claude access to all of Panopticon's tools.
 
 ## Common Issues
 
 <Accordions>
-  <Accordion title="Container exits immediately">
-    Check `docker compose logs panopticon` for configuration parsing errors. The most common cause is a YAML indentation mistake in the config file. Run `panopticon config validate --config /path/to/config.yaml` to validate syntax before starting the container.
+  <Accordion title="Temporal connection refused">
+    The Temporal server takes about 30 seconds to become healthy on first start. Wait for `docker compose ps` to show all services as healthy. If it stays unhealthy, check the logs: `docker compose logs temporal`.
   </Accordion>
-  <Accordion title="Ingestion returns 429 Too Many Requests">
-    You have hit the per-source rate limit. The default is 10,000 samples per second per source. For local testing this is generous, but bulk imports may exceed it. Increase `server.rate_limit.ingest` in the config or use the batch endpoint `POST /api/v1/ingest/batch` with NDJSON format for efficient bulk imports.
+  <Accordion title="No Gemini API keys available">
+    Set the `GEMINI_API_KEY` or `GEMINI_API_KEYS` environment variable before running any discovery commands. The key must be a valid Google AI Studio API key starting with `AIzaSy`.
   </Accordion>
-  <Accordion title="Query returns empty results">
-    If you are querying within seconds of ingestion, the data may not have been flushed from the write buffer to storage yet. The default flush interval is 5 seconds. Wait a moment and retry. Also verify your `from` and `to` timestamps cover the time window when the metric was pushed.
+  <Accordion title="Catalog build fails with 'No schemas available'">
+    This means no MCP servers are registered or all registered servers failed to respond. Check `~/.panopticon/servers.yaml` and verify the server commands are correct. You can test a server manually: `npx @anthropic/firecrawl-mcp`.
   </Accordion>
-  <Accordion title="Scrape target shows errors">
-    Verify the target URL is reachable from inside the container. If Panopticon runs in Docker and the target runs on the host, use `host.docker.internal` instead of `localhost` on macOS/Windows. On Linux, use `--network=host` or the container's gateway IP.
+  <Accordion title="Tool execution times out">
+    Ensure the Temporal worker is running (`panopticon worker`). Without a worker, workflows are scheduled but never picked up. Also check that the downstream MCP server can start successfully.
+  </Accordion>
+  <Accordion title="All keys rate-limited error">
+    You have hit the RPM limit on all configured Gemini keys. Add more keys to `GEMINI_API_KEYS` or wait for the cooldown period (default 60 seconds). Check key health: `panopticon health` or the `key_pool_health` MCP tool.
   </Accordion>
 </Accordions>
 
@@ -288,12 +315,12 @@ If the container fails to start, check that ports 9090 and 9091 are not already 
 
 <Cards>
   <Card title="Architecture" href="/docs/panopticon/architecture">
-    Understand the five subsystems powering this setup.
-  </Card>
-  <Card title="API Reference" href="/docs/panopticon/api-reference">
-    Explore all available endpoints and payload formats.
+    Understand the six-layer architecture powering this setup.
   </Card>
   <Card title="Configuration" href="/docs/panopticon/configuration">
-    Customize retention, alerting, and scrape targets for your environment.
+    Customize server registration, guardrail policies, and key pool settings.
+  </Card>
+  <Card title="Deployment" href="/docs/panopticon/deployment">
+    Move from local development to production with systemd services and monitoring.
   </Card>
 </Cards>

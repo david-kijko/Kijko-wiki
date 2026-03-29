@@ -1,0 +1,169 @@
+---
+title: "Integrations"
+description: "How HyperVisa 3.0 integrates with the Kijko ecosystem: Panopticon, Baton Exchange, Oracle-Cortex, Open Notebook, and Claude Code"
+icon: Plug
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { TypeTable } from 'fumadocs-ui/components/type-table'
+
+HyperVisa 3.0 operates as the code understanding layer within the broader Kijko ecosystem. It connects to five key systems through well-defined interfaces: MCP tools for Claude Code, REST endpoints for web clients, the Baton protocol for session continuity, Oracle-Cortex for trace storage, and Open Notebook for knowledge retrieval.
+
+## Claude Code via MCP
+
+The primary integration point for LLM workflows. The MCP server exposes HyperVisa's full capability set as tools that Claude Code (or any MCP-compatible client) can invoke directly.
+
+### Setup
+
+Add HyperVisa to your Claude Code MCP configuration:
+
+```json title="~/.claude/settings.json"
+{
+  "mcpServers": {
+    "hypervisa": {
+      "command": "hypervisa-mcp",
+      "env": {
+        "GEMINI_API_KEY": "your-key-here"
+      }
+    }
+  }
+}
+```
+
+### Workflow: Ticket-to-Code
+
+The `hypervisa_locate` and `hypervisa_analyse` tools enable a ticket-driven development workflow:
+
+1. **Locate** relevant code for a Linear ticket: `hypervisa_locate(ticket_id="KIJ-123", description="Add OAuth support", source_dir="/path/to/repo")`
+2. **Analyse** and generate an implementation spec: `hypervisa_analyse(ticket_id="KIJ-123", description="Add OAuth support", locate_result=<previous result>)`
+3. **Query** for specific implementation details: `hypervisa_query(session_id="...", prompt="How does the existing auth middleware validate tokens?")`
+
+This gives the LLM video-mediated understanding of the entire codebase before writing a single line of code.
+
+### Smith Integration in Claude Code
+
+Smith's Canon rules can intercept Claude Code tool calls through the `smith_intercept` MCP tool. When integrated into a Claude Code hook configuration, Smith can block dangerous operations, warn about risky patterns, and inject context at capacity thresholds -- all without modifying the LLM's system prompt.
+
+## Oracle-Cortex (cxdb)
+
+HyperVisa's Baton system reads session history from Oracle-Cortex's cxdb (context database). This provides the "Persistence" pillar of the Baton protocol.
+
+```python title="src/hypervisa/baton.py"
+def _get_cxdb_timeline(project_name: str, limit: int = 10) -> list[dict]:
+    """Get recent turns from cxdb for this project."""
+    from baton import get_recent_turns
+    return get_recent_turns(project_name, limit=limit)
+```
+
+The integration path: Oracle-Cortex scripts are loaded from `/home/devuser/Oracle-Cortex/scripts/cortex`. The `get_recent_turns()` function returns timestamped session events including metadata like gotchas, decisions, and file modifications.
+
+## Open Notebook
+
+HyperVisa queries Open Notebook's RAG pipeline for curated knowledge that supplements code understanding. This provides the "Steering" pillar of the Baton protocol.
+
+```python title="src/hypervisa/baton.py"
+def _get_notebooklm_context(project_name: str, query: str) -> str | None:
+    """Query NotebookLM hivemind for project-specific knowledge."""
+    from notebooklm_client import is_available, query_notebook
+    # Looks up notebook_id from ~/.cortex/smith/hivemind-registry.json
+    result = query_notebook(notebook_id, query, timeout=30)
+    return result.data.get("answer", "")
+```
+
+The Hivemind Registry at `~/.cortex/smith/hivemind-registry.json` maps project names to Open Notebook IDs, enabling per-project knowledge retrieval.
+
+<Callout type="info" title="Lightweight Bridge, Not Heavy Stack">
+  HyperVisa connects to Open Notebook via a thin Python client (`POST /api/search/ask`), not by deploying an additional RAG stack. The evaluation documented in `docs/OPENRAG-EVALUATION.md` explicitly concluded that adding OpenRAG's 5-container Docker stack would be redundant -- Open Notebook's existing RAG pipeline is sufficient for knowledge queries.
+</Callout>
+
+## Panopticon
+
+HyperVisa 3.0 and [Panopticon](/docs/panopticon) are complementary observability systems:
+
+| Aspect | Panopticon | HyperVisa 3.0 |
+|--------|-----------|----------------|
+| **Observes** | Infrastructure behavior | Codebases and documentation workflows |
+| **Data Type** | Time-series metrics, traces | Video-compressed source code |
+| **Output** | Dashboards, alerts | Answers with citations, implementation specs |
+| **Integration** | Scrape/push telemetry | Proofshot + pipeline agents |
+
+The V2 renderer was originally ported from Panopticon's rendering infrastructure, sharing the Tamzen bitmap font system and PIL-based frame generation pipeline.
+
+## Baton Exchange
+
+The [Baton Exchange](/docs/baton-exchange) protocol governs context handoffs between sessions. HyperVisa implements the Baton Relay Protocol (`baton.py`) which synthesizes a <500-token JSON payload from three sources:
+
+1. **cxdb timeline** (Oracle-Cortex) -- what happened in previous sessions
+2. **NotebookLM knowledge** (Open Notebook) -- curated gotchas and patterns
+3. **Gemini compression** -- synthesizes both into the three-pillar structure (Purpose, Persistence, Steering)
+
+The Baton ensures that when an LLM agent starts a new session on the same project, it inherits the north-star objective, current progress state, and accumulated lessons learned -- all in under 500 tokens.
+
+## Dependency Graph Skill
+
+HyperVisa integrates with the `dependency-graph` Claude Code skill (`~/.claude/skills/dependency-graph/`) for graph-ordered video rendering. The `GraphBridge` class wires the skill's NetworkX-based graph construction into HyperVisa's pipeline:
+
+```python title="Proposed integration (docs/RLM-DependencyGraph-Addendum.md)"
+from dependency_graph_generator import DependencyGraphGenerator
+
+class GraphBridge:
+    def build_graph(self) -> dict:
+        """Run full graph generation pipeline."""
+        structure = self.generator.discover_project_structure()
+        dependencies = self.generator.extract_dependencies_python()
+        self.generator.build_graph_structure(dependencies)
+        return self.generator.analyze_graph()
+
+    def get_ordering(self, schema: str = "topological") -> list[str]:
+        """Return file ordering: topological, callgraph, hotspot, cluster, or flat."""
+        ...
+```
+
+This enables five different video orderings (topological, call-graph, hotspot, cluster, flat) depending on query intent -- validated by the observation that Gemini's 8-32 frame sampling makes ordering a first-class optimization axis.
+
+## Google Gemini
+
+The core dependency. HyperVisa uses the `google-genai` SDK for:
+
+- **File upload**: `client.files.upload()` with polling until ACTIVE state
+- **Generation**: `client.models.generate_content()` with video file references
+- **Token counting**: `client.models.count_tokens()` for budget tracking
+- **Google Search grounding**: Enabled by default for all agent queries
+- **Thinking config**: Configurable thinking levels (HIGH, MEDIUM, LOW, NONE)
+- **Context caching**: 7-day TTL for uploaded video files
+
+<TypeTable
+  type={{
+    'google-genai': { type: 'Python package', description: 'Google GenAI SDK (>= 1.0)', required: true },
+    'Default model': { type: 'string', description: 'Model used for generation', default: '"gemini-2.5-flash-preview"' },
+    'Rate limit handling': { type: 'string', description: 'Exponential backoff with 5 retries, 1s-60s delay range' },
+  }}
+/>
+
+## Non-Gemini Models (Mental Model)
+
+For models that cannot ingest video natively (Claude Opus, GPT-4o-vision), the `mental_model.py` module provides frame extraction and base64 encoding:
+
+```python title="src/hypervisa/mental_model.py"
+# Extract PIL Images from MP4 at 1fps
+frames = extract_frames_from_mp4(video_path)
+
+# Convert to base64 PNG for API consumption
+b64_frames = frames_to_base64(frames)
+
+# Send as image messages to Claude/GPT
+# Each frame becomes an image content block
+```
+
+This enables HyperVisa's compression benefits for any vision-capable model, though at reduced efficiency compared to Gemini's native video processing.
+
+<Cards>
+  <Card title="Architecture" href="/docs/hypervisa-3.0/architecture">
+    Detailed system diagrams showing how all components connect.
+  </Card>
+  <Card title="Quickstart" href="/docs/hypervisa-3.0/quickstart">
+    Get started with HyperVisa in under 5 minutes.
+  </Card>
+</Cards>

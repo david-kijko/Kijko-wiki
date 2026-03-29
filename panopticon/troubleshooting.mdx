@@ -1,0 +1,290 @@
+---
+title: Troubleshooting
+description: "Common issues, failure modes, diagnostic commands, and resolution steps for Panopticon deployment and operation"
+icon: Bug
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion'
+
+This page covers the most common issues encountered when deploying and operating Panopticon, organized by the subsystem where the problem surfaces. Each issue includes the error message, root cause, diagnostic steps, and resolution.
+
+## Temporal Infrastructure
+
+<Accordions>
+  <Accordion title="Temporal connection refused at localhost:7233">
+    **Error**: `ConnectionRefusedError: [Errno 111] Connection refused` or health check shows `Temporal: OFFLINE`
+
+    **Root Cause**: The Temporal server container is not running or has not finished initializing.
+
+    **Diagnostics**:
+    ```bash
+    docker compose ps
+    docker compose logs temporal --tail 30
+    ```
+
+    **Resolution**:
+    1. If the temporal container shows as "Exited", restart it: `docker compose up -d temporal`
+    2. If it shows "Starting" or "Health: starting", wait 30 seconds -- first-time schema creation takes time
+    3. If PostgreSQL is not healthy, Temporal cannot start. Check: `docker compose logs postgresql`
+    4. If port 7233 is already in use: `sudo lsof -i :7233` and stop the conflicting process
+  </Accordion>
+
+  <Accordion title="Temporal worker fails to connect after Docker restart">
+    **Error**: Worker logs show repeated connection attempts
+
+    **Root Cause**: The Temporal server takes 20-30 seconds to become healthy after a Docker restart. The worker reconnects automatically, but if you see persistent failures, the issue is likely a port or network change.
+
+    **Resolution**:
+    1. Wait 30 seconds after `docker compose up -d`
+    2. Verify Temporal is healthy: `docker compose ps`
+    3. Test connectivity: `docker compose exec temporal tctl --address temporal:7233 cluster health`
+    4. If using a custom `TEMPORAL_ADDRESS`, verify it resolves correctly
+  </Accordion>
+
+  <Accordion title="Workflow stuck in RUNNING state">
+    **Error**: A workflow appears as RUNNING in the Temporal UI but no activity is executing
+
+    **Root Cause**: No worker is connected to the `panopticon-tasks` task queue, or the worker crashed and hasn't restarted.
+
+    **Resolution**:
+    1. Check worker status: `systemctl status panopticon-worker` (or check terminal output)
+    2. If the worker is not running, start it: `panopticon worker`
+    3. In the Temporal UI (`http://localhost:8233`), check the "Workers" tab for the `panopticon-tasks` queue
+    4. If the workflow has been stuck for a long time, consider terminating it via the Temporal UI
+  </Accordion>
+</Accordions>
+
+## Gemini Key Pool
+
+<Accordions>
+  <Accordion title="AllKeysExhaustedError: All keys rate-limited">
+    **Error**: `AllKeysExhaustedError: All 3 keys rate-limited. Earliest available in 45.2s.`
+
+    **Root Cause**: Every key in the pool has hit the rate limit (default: 10 RPM per key) or been put on cooldown due to 429 responses.
+
+    **Resolution**:
+    1. **Immediate**: Wait for the cooldown period (60 seconds by default)
+    2. **Structural**: Add more API keys to `GEMINI_API_KEYS`
+    3. **Diagnostic**: Check key health via the REST API:
+       ```bash
+       curl -s http://localhost:8043/api/panopticon/health | jq .key_pool
+       ```
+    4. If keys show as "disabled", they received 401/403 errors and are permanently removed. Regenerate the keys in Google AI Studio.
+  </Accordion>
+
+  <Accordion title="No Gemini API keys available">
+    **Error**: `KeyPoolError: No Gemini API keys available. Set GEMINI_API_KEYS...`
+
+    **Root Cause**: None of the three environment variables (`GEMINI_API_KEYS`, `VERTEX_API_KEYS`, `GEMINI_API_KEY`) are set.
+
+    **Resolution**:
+    ```bash
+    export GEMINI_API_KEY="AIzaSy..."
+    ```
+    If using systemd services, add the environment variable to the service file and reload:
+    ```bash
+    sudo systemctl daemon-reload
+    sudo systemctl restart panopticon-worker
+    ```
+  </Accordion>
+
+  <Accordion title="Key permanently disabled (invalid)">
+    **Error**: Logs show `Key ...Xy4z permanently disabled (invalid)`
+
+    **Root Cause**: The key returned a 401 (unauthorized) or 403 (forbidden) error, indicating it was revoked or invalid.
+
+    **Resolution**:
+    1. Remove the invalid key from `GEMINI_API_KEYS`
+    2. Generate a new key in Google AI Studio
+    3. Restart the worker to reinitialize the key pool
+  </Accordion>
+</Accordions>
+
+## MCP Server Issues
+
+<Accordions>
+  <Accordion title="Tool not found: server.tool">
+    **Error**: `Tool not found: firecrawl.scrape`
+
+    **Root Cause**: The schema cache does not contain this tool. Either the server was not registered, the catalog was not built, or the server failed to return schemas during discovery.
+
+    **Resolution**:
+    1. Check registered servers: `panopticon health`
+    2. If the server is not listed, register it: `panopticon register firecrawl npx -a @anthropic/firecrawl-mcp`
+    3. Rebuild the catalog: `panopticon discover --rebuild`
+    4. If the server fails during discovery, test it manually:
+       ```bash
+       echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1.0"}}}' | npx @anthropic/firecrawl-mcp
+       ```
+  </Accordion>
+
+  <Accordion title="Transport error: Broken pipe / EOF from server">
+    **Error**: `RuntimeError: EOF from firecrawl (process exited)` or `BrokenPipeError`
+
+    **Root Cause**: The downstream MCP server subprocess crashed. This can happen due to:
+    - Missing API keys in the server's environment
+    - Dependency installation failure (npx downloading packages)
+    - Server-side bug causing a crash
+
+    **Resolution**:
+    The MCPProcessManager automatically classifies this as a transport error and restarts the server. If you see repeated restarts:
+    1. Check the server's stderr output (captured by the subprocess)
+    2. Verify the server's environment variables are correct in `~/.panopticon/servers.yaml`
+    3. Test the server manually outside of Panopticon
+  </Accordion>
+
+  <Accordion title="MCP server returns error for tool call">
+    **Error**: `RuntimeError: firecrawl.scrape error: {"code": -32602, "message": "Invalid params"}`
+
+    **Root Cause**: The tool was called with incorrect parameters. This is an application-level error (not a transport error), so the server is NOT restarted.
+
+    **Resolution**:
+    1. Check the tool's expected parameters: `panopticon details firecrawl.scrape`
+    2. Verify the parameter types match the schema (e.g., string vs integer)
+    3. If using `smart_execute`, the Gemini parameter filling may have produced incorrect values. Fall back to `execute_tool` with explicit parameters.
+  </Accordion>
+
+  <Accordion title="No schemas available from any server">
+    **Error**: `Catalog build: No schemas available`
+
+    **Root Cause**: All registered MCP servers either failed to start or failed to respond to the `tools/list` request.
+
+    **Resolution**:
+    1. Check that servers are registered: verify `~/.panopticon/servers.yaml` is not empty
+    2. Check that servers have `enabled: true`
+    3. For each server, verify the command works:
+       ```bash
+       which npx  # Or whatever command the server uses
+       ```
+    4. Check for missing dependencies (e.g., npm packages not installed)
+    5. Ensure server API keys are set in the environment
+  </Accordion>
+</Accordions>
+
+## Catalog and Discovery
+
+<Accordions>
+  <Accordion title="No catalog built -- browse_tools returns error">
+    **Error**: `{"error": "No catalog built. Run: panopticon discover --rebuild"}`
+
+    **Root Cause**: The HyperVisa video catalog has not been built yet, or the Gemini upload failed.
+
+    **Resolution**:
+    ```bash
+    panopticon discover --rebuild
+    ```
+    If this fails, check:
+    1. At least one MCP server is registered and responding
+    2. Gemini API keys are configured
+    3. The HyperVisa library is installed (`pip install hypervisa`)
+  </Accordion>
+
+  <Accordion title="Gemini visual search returns incorrect results">
+    **Root Cause**: The video catalog may be stale (built before new servers were added) or the query is too vague for accurate matching.
+
+    **Resolution**:
+    1. Rebuild the catalog: `panopticon discover --rebuild`
+    2. Use more specific queries: "scrape a single webpage URL" is better than "web"
+    3. Check the confidence scores in the browse results -- below 0.5 indicates a weak match
+  </Accordion>
+
+  <Accordion title="Catalog upload timeout">
+    **Error**: `RuntimeError: Timeout waiting for file: files/xxx`
+
+    **Root Cause**: The Gemini File API took longer than 5 minutes to process the uploaded video. This can happen with very large catalogs (100+ tools) or slow network connections.
+
+    **Resolution**:
+    1. Check your internet connection speed
+    2. Retry the catalog build: `panopticon discover --rebuild`
+    3. The upload uses the key pool with failover, so a rate limit on one key will rotate to the next
+  </Accordion>
+</Accordions>
+
+## Memory and Intelligence
+
+<Accordions>
+  <Accordion title="Hive mind not promoting patterns">
+    **Root Cause**: The promotion threshold requires 3+ successful uses of the same tool for similar queries. If queries are phrased differently each time, they may not match the same category.
+
+    **Resolution**:
+    Check hive mind statistics:
+    ```bash
+    curl -s http://localhost:8043/api/panopticon/hive | jq .
+    ```
+    The `local_observations` count shows how many tool usage records exist. If `promoted_patterns` is 0 but observations are high, the query categories may be too diverse.
+  </Accordion>
+
+  <Accordion title="Episodic memory returns empty results">
+    **Root Cause**: Either no episodes have been recorded (the system is new), or the search query does not match any stored text.
+
+    **Resolution**:
+    Check episode count:
+    ```bash
+    curl -s http://localhost:8043/api/panopticon/memory | jq .episode_count
+    ```
+    The local JSONL fallback uses simple text search. Queries must contain substrings that appear in the stored records. Graphiti search (when available) uses semantic matching.
+  </Accordion>
+
+  <Accordion title="Agent Lightning training produces no rollouts">
+    **Root Cause**: No traces with reward signals have been recorded since the last training run.
+
+    **Resolution**:
+    Check training state:
+    ```bash
+    curl -s http://localhost:8043/api/panopticon/training | jq .
+    ```
+    If `today_traces` is 0, no tool calls have been made through Panopticon today. The trace system requires the `record_trace()` function to be called, which happens in the execution pipeline.
+  </Accordion>
+</Accordions>
+
+## Diagnostic Commands
+
+Quick reference for diagnosing common issues:
+
+```bash
+# Overall system health
+panopticon health
+
+# Temporal connectivity
+curl -s http://localhost:8043/api/panopticon/temporal | jq .connected
+
+# Key pool status
+curl -s http://localhost:8043/api/panopticon/health | jq .
+
+# MCP server status
+curl -s http://localhost:8043/api/panopticon/servers | jq .
+
+# Recent traces (last 10)
+curl -s "http://localhost:8043/api/panopticon/traces?limit=10" | jq .
+
+# Trace success rate
+curl -s http://localhost:8043/api/panopticon/traces/stats | jq .success_rate
+
+# Hive mind stats
+curl -s http://localhost:8043/api/panopticon/hive | jq .
+
+# Docker container health
+docker compose ps
+
+# Temporal UI
+open http://localhost:8233
+
+# Check worker logs
+journalctl -u panopticon-worker -f
+
+# Check API logs
+journalctl -u panopticon-api -f
+```
+
+## Next Steps
+
+<Cards>
+  <Card title="Deployment" href="/docs/panopticon/deployment">
+    Review the deployment guide for proper setup and production hardening.
+  </Card>
+  <Card title="Configuration" href="/docs/panopticon/configuration">
+    Adjust configuration to address performance or connectivity issues.
+  </Card>
+</Cards>

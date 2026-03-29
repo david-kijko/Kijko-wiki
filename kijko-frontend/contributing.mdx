@@ -1,0 +1,355 @@
+---
+title: "Contributing"
+description: "Developer guide for contributing to the Kijko Docs platform — code style, testing, PR process, and architecture conventions"
+icon: GitPullRequest
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Step, Steps } from 'fumadocs-ui/components/steps'
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion'
+
+This guide covers how to contribute code, documentation, and infrastructure changes to the Kijko Docs platform. The repository is a TypeScript monorepo with Express, React, Next.js, and autonomous agent components.
+
+## Repository Layout
+
+| Directory | Owner | Language | Description |
+|---|---|---|---|
+| `server/` | Backend team | TypeScript | Express.js API server, auth, storage, proxy |
+| `client/` | Frontend team | TypeScript/React | Vite-bundled React SPA dashboard |
+| `shared/` | Shared | TypeScript | Drizzle schemas, Zod validators, shared types |
+| `apps/web/` | Frontend team | TypeScript/Next.js | Fumadocs MDX reader |
+| `apps/agent/` | Agent team | TypeScript | Autonomous docs pipeline with Mastra |
+| `packages/shared/` | Shared | TypeScript | Monorepo shared package |
+| `wiki-content/docs/` | Content team | MDX | Committed documentation pages |
+| `conductor/` | All | Markdown/YAML | Superconductor track orchestration |
+| `tests/` | All | TypeScript | Vitest test suites |
+| `scripts/` | DevOps | Bash/Python | CI gates, deploy scripts, forensic-ingest |
+| `deploy/` | DevOps | Caddyfile/YAML | Production deployment configs |
+| `config/` | All | YAML/OpenAPI | API specs, repo config, agent config |
+
+## Development Workflow
+
+<Steps>
+
+### Create a Branch
+
+Branch from `main` using a descriptive name:
+
+```bash
+git checkout -b feat/wiki-search-improvements
+# or
+git checkout -b fix/auth-token-refresh
+```
+
+Naming conventions:
+- `feat/` -- New features
+- `fix/` -- Bug fixes
+- `refactor/` -- Code restructuring without behavior change
+- `docs/` -- Documentation-only changes
+- `ci/` -- CI/CD pipeline changes
+
+### Make Changes
+
+Follow the code style conventions documented in `conductor/code_styleguides/`:
+
+- **TypeScript** (`conductor/code_styleguides/typescript.md`): Strict mode, explicit return types on exported functions, Zod for runtime validation, Drizzle for database queries
+- **HTML/CSS** (`conductor/code_styleguides/html-css.md`): Tailwind utility classes, shadcn/ui components for the React SPA
+- **General** (`conductor/code_styleguides/general.md`): Consistent naming, error handling patterns, logging conventions
+
+### Run the Quality Gates
+
+Before committing, run the full validation suite:
+
+```bash
+# Type checking
+npm run check
+
+# Tests
+npm test
+
+# Sprint 1 parity gate
+bash scripts/ci/run-conductor-parity.sh
+
+# Full build (catches build-time errors)
+npm run build
+```
+
+### Create a Pull Request
+
+Push your branch and open a PR against `main`. The CI workflow runs automatically:
+
+1. Typecheck (`npm run check`)
+2. Tests (`npm test`)
+3. Sprint 1 parity gate
+4. Full build (`npm run build`)
+5. Compose validation (`docker compose config`)
+6. Docker image build
+
+All gates must pass before merge.
+
+</Steps>
+
+## Code Conventions
+
+### Express Routes
+
+All new API routes follow this pattern:
+
+```typescript
+// 1. Privilege middleware first
+app.get("/api/resource", requirePrivilege("resource:view"), (req, res) => {
+  // 2. Input validation with Zod
+  const parsed = schema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  // 3. Storage operation
+  const result = storage.getResource(parsed.data);
+
+  // 4. Response
+  res.json(result);
+});
+```
+
+Key conventions:
+- Every endpoint has a privilege requirement (except `/health` and webhooks)
+- Input validation uses Zod schemas from `shared/schema.ts`
+- Storage access goes through the `IStorage` interface
+- Error responses use consistent `{ error: string }` format
+- `404` for not found, `409` for conflicts, `400` for validation failures
+
+### Database Schemas
+
+New database tables go in `shared/schema.ts`:
+
+```typescript
+// 1. Define the table with Drizzle
+export const newTable = sqliteTable("new_table", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+// 2. Generate insert schema with Drizzle-Zod
+export const insertNewTableSchema = createInsertSchema(newTable).omit({ id: true });
+export type InsertNewTable = z.infer<typeof insertNewTableSchema>;
+export type NewTable = typeof newTable.$inferSelect;
+```
+
+### React Components
+
+Client components use functional components with hooks:
+
+```tsx
+// client/src/pages/new-page.tsx
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/lib/auth";
+
+export default function NewPage() {
+  const auth = useAuth();
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/new-resource"],
+    enabled: auth.isAuthenticated,
+  });
+
+  if (isLoading) return <Skeleton />;
+  return <div>{/* ... */}</div>;
+}
+```
+
+Conventions:
+- TanStack Query for all API data fetching
+- `useAuth()` hook for auth state
+- shadcn/ui components for all UI elements
+- Tailwind for styling (no CSS files per component)
+- Route registration in `client/src/App.tsx`
+
+### Wiki Content
+
+MDX pages in `wiki-content/docs/` follow the Fumadocs format:
+
+```mdx
+---
+title: "Page Title"
+description: "SEO description (120-160 chars)"
+icon: IconName
+---
+
+Content here. Fumadocs components (Callout, Card, Steps, etc.)
+are available globally without imports.
+```
+
+Frontmatter fields:
+- `title` (required): Page title
+- `description` (required): SEO description
+- `icon` (optional): Lucide icon name
+- `audience` (optional): `internal`, `external`, or `both`
+- `tags` (optional): Array of tag strings
+
+## Testing
+
+### Test Structure
+
+Tests live in `tests/` at the repo root and use Vitest:
+
+```typescript
+// tests/schema.test.ts
+import { describe, it, expect } from "vitest";
+import { insertWikiPageSchema } from "@shared/schema";
+
+describe("Wiki Page Schema", () => {
+  it("validates a complete page", () => {
+    const result = insertWikiPageSchema.safeParse({
+      slug: "test-page",
+      title: "Test Page",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+### Test Suites
+
+| File | Covers |
+|---|---|
+| `schema.test.ts` | Drizzle schema validation, Zod parsing |
+| `wiki-docs.test.ts` | Slug normalization, hash routing rewrite, navigation building |
+| `architecture.test.ts` | Architecture diagram generation |
+| `github.test.ts` | GitHub API integration, repo policy enforcement |
+| `swarm.test.ts` | Swarm proxy URL rewriting, WebSocket setup |
+| `wiki-route.test.ts` | Wiki API route behavior |
+| `wikiagent.test.ts` | Chat turn handling, confirmation flow |
+| `docs.test.ts` | Docs pipeline corpus building |
+| `sprint1-parity.test.ts` | Conductor parity gate assertions |
+
+### Agent Tests
+
+Agent-specific tests live in `apps/agent/tests/`:
+
+| File | Covers |
+|---|---|
+| `docs-pipeline.test.ts` | Docs corpus building and quality checking |
+| `chat-engine-pipeline.test.ts` | Chat engine integration with pipeline |
+| `intent.test.ts` | Intent classification |
+| `superconductor.test.ts` | Superconductor pipeline integration |
+
+## Conductor Tracks
+
+Major work items are tracked as Conductor tracks in `conductor/tracks/`. Each track has:
+
+- `spec.md` -- Requirements specification
+- `plan.md` -- Implementation plan with phases and tasks
+- `metadata.json` -- Status (draft, active, complete), priority, assignee
+- `index.md` -- Track overview and context
+
+To create a new track:
+
+```bash
+mkdir -p conductor/tracks/my_feature_$(date +%Y%m%d)
+```
+
+## Deployment Considerations
+
+### What Triggers Auto-Deploy
+
+Changes to these paths trigger the publish + deploy pipeline:
+
+```
+client/**    server/**    shared/**    tests/**
+Dockerfile   package.json  package-lock.json
+tsconfig.json  vite.config.ts  tailwind.config.ts
+postcss.config.js  script/**  proofshot.config.json
+```
+
+Changes to these paths trigger deploy-only (no image rebuild):
+
+```
+docker-compose.yml  deploy/**  scripts/**
+```
+
+### What Does NOT Auto-Deploy
+
+Changes to these paths do not trigger deployment:
+
+```
+apps/**              # Separate build pipeline
+conductor/**         # Orchestration metadata only
+config/**            # Runtime config, not baked into image
+wiki-content/**      # Separate living-docs workflow
+docs/**              # Internal documentation
+.github/workflows/   # CI changes (deploy workflow self-triggers)
+```
+
+<Callout type="warn">
+Always verify changes on docs.kijko.nl after deployment, not just localhost. The production environment has Keycloak auth, Caddy reverse proxy, and Docker networking that differ from local development.
+</Callout>
+
+## Adding a New API Endpoint
+
+<Steps>
+
+### Define the Schema
+
+Add any new Zod schemas or Drizzle tables to `shared/schema.ts`.
+
+### Add Storage Methods
+
+Extend the `IStorage` interface in `server/storage.ts` and implement in `DatabaseStorage`.
+
+### Register the Route
+
+Add the route in `server/routes.ts` within the `registerRoutes` function, with appropriate privilege middleware.
+
+### Add Client Integration
+
+Add the API call in the React client, either via a new TanStack Query hook or in the relevant page component.
+
+### Write Tests
+
+Add a test in `tests/` covering the new endpoint's validation, happy path, and error cases.
+
+### Update Documentation
+
+If the endpoint is user-facing, add it to the [API Reference](/docs/kijko-frontend/api-reference).
+
+</Steps>
+
+## Adding a New Dashboard Page
+
+<Steps>
+
+### Create the Page Component
+
+Add a new file in `client/src/pages/`:
+
+```tsx
+// client/src/pages/my-page.tsx
+export default function MyPage() {
+  return <div>My new page</div>;
+}
+```
+
+### Register the Route
+
+Add the route in `client/src/App.tsx`:
+
+```tsx
+<Route path="/my-page" component={lazy(() => import("./pages/my-page"))} />
+```
+
+### Add Sidebar Navigation
+
+Update `client/src/components/app-sidebar.tsx` to include the new page with the appropriate privilege gate and icon.
+
+### Gate by Privilege
+
+Use `useAuth()` to check the user's privileges before rendering:
+
+```tsx
+const auth = useAuth();
+if (!auth.hasPrivilege("my-page:view")) return <NotFound />;
+```
+
+</Steps>

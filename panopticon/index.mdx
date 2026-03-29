@@ -1,115 +1,103 @@
 ---
 title: Panopticon
-description: "Central monitoring and observability platform for the Kijko workspace with unified telemetry, alerting, and query federation"
+description: "Durable MCP gateway with video-encoded tool discovery, Temporal orchestration, and collective agent intelligence"
 icon: Eye
 ---
 
-Panopticon is the unified monitoring and observability layer that sits across the entire Kijko infrastructure. It collects telemetry from every service in the workspace, aggregates metrics, correlates logs with traces, and exposes a single pane of glass for operators who need to understand what the system is doing at any given moment. The name comes from the architectural concept of a structure where every part can be observed from a single vantage point -- and that maps directly to what this system does: complete visibility without jumping between a dozen different dashboards.
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
 
-In the Kijko workspace, Panopticon is not just a monitoring add-on. It is a first-class citizen in the repository's seed data, test suites, and agent help text. The label `panopticon` appears in `server/routes.ts` as a seeded repository, in `tests/wikiagent.test.ts` as an intent classification target, and in `apps/agent/src/lib/chat-engine.ts` as one of the example commands surfaced to users. That three-way presence across data, tests, and user-facing guidance makes it a stable reference point in the workspace vocabulary.
+Panopticon is the central nervous system for an AI agent fleet. It provides token-efficient tool discovery through HyperVisa video encoding, crash-safe tool execution via Temporal workflows, and collective learning across agent sessions through a hive mind memory system. Where traditional MCP setups dump all tool schemas into context (~50,000+ tokens), Panopticon achieves a ~98% context token reduction by rendering schemas as 1fps MP4 video and using Gemini visual search to return only the top-3 matches (~500 tokens).
+
+The system sits between AI agents (Claude Code, Oracle, Smith, Trinity) and downstream MCP servers (Firecrawl, Exa, Graphiti, NotebookLM, and others). Every tool call flows through Temporal for durable execution -- if a worker crashes mid-call, Temporal replays from the last checkpoint and the call completes without data loss.
 
 ## At a Glance
 
 <Cards>
   <Card title="Architecture" href="/docs/panopticon/architecture">
-    Service topology, data flow pipelines, and how Panopticon integrates with upstream services across five core subsystems.
+    Six-layer modular monolith: Interface, Discovery, Orchestration, Process Management, Intelligence, and Agent Integration.
   </Card>
   <Card title="Quickstart" href="/docs/panopticon/quickstart">
-    Get Panopticon running locally in under five minutes with Docker Compose and a minimal YAML configuration.
+    Get Panopticon running with Docker Compose, build the tool catalog, and execute your first MCP tool call in under five minutes.
   </Card>
   <Card title="API Reference" href="/docs/panopticon/api-reference">
-    Complete REST and gRPC endpoint documentation for ingestion, query, and management APIs with code examples.
+    12 REST endpoints, 7 MCP tools via stdio, 4 Nexus operations, and 10 CLI commands -- all documented with examples.
   </Card>
   <Card title="Configuration" href="/docs/panopticon/configuration">
-    Every configuration key documented: server, storage tiers, processing pipelines, alerting, scrape targets, and discovery.
+    MCP server registration, guardrail policies, Gemini key pools, Temporal connection, and memory system tuning.
+  </Card>
+  <Card title="Core Concepts" href="/docs/panopticon/concepts">
+    Three-tier progressive disclosure, durable execution guarantees, the hive mind promotion model, and the agent pantheon.
+  </Card>
+  <Card title="Deployment" href="/docs/panopticon/deployment">
+    Docker Compose infrastructure, Temporal setup, systemd services, and production hardening.
   </Card>
 </Cards>
 
 ## How It Works
 
-Panopticon operates on a pull-and-push hybrid model. Services can push metrics and traces directly using the ingestion API, or Panopticon can scrape Prometheus-compatible endpoints on a configurable interval. The data flows through four stages:
+Panopticon operates on a three-tier progressive disclosure model that minimizes context token usage while maximizing tool discovery accuracy:
 
-1. **Ingestion** receives raw telemetry via HTTP, gRPC, or the Prometheus scrape loop and normalizes it into the internal time-series format through the Normalizer component.
-2. **Processing** runs three parallel pipelines: an aggregation pipeline that computes windowed summaries, an anomaly detector that maintains statistical baselines using EMA and modified z-scores, and an alert evaluator that triggers on data arrival rather than polling.
-3. **Storage** persists processed data into a columnar time-series store with three retention tiers (hot at 48h full resolution, warm at 30d with 1-minute downsampling, cold at 13 months with 1-hour downsampling) and an inverted label index for fast queries.
-4. **Query** exposes a unified SQL-like query interface with automatic selection between raw and aggregated data, federation proxy for multi-cluster deployments, and REST/gRPC API surfaces.
+1. **Browse** -- An agent sends a natural language query (e.g., "scrape a webpage"). Gemini watches the HyperVisa video catalog and returns the top-3 tool matches with confidence scores. Cost: ~500 tokens.
+2. **Detail** -- The agent requests the full JSON schema for the selected tool. This provides complete parameter definitions without loading schemas for tools that were not needed. Cost: ~2,000 tokens.
+3. **Execute** -- The tool call routes through a Temporal `ToolExecutionWorkflow`. If the downstream MCP server crashes, Temporal restarts it and retries the call from the checkpoint. The agent gets a result or a definitive error.
 
-The key design decision is that ingestion and query are completely decoupled. The write path and the read path operate on separate subsystems with independent resource budgets, so you can ingest data at high throughput without impacting query performance.
+Every execution generates a trace that feeds into the reinforcement learning pipeline (Agent Lightning). Over time, Panopticon learns which tools work best for which query types and promotes successful patterns to the shared hive mind.
+
+## Key Metrics
+
+| Metric | Value |
+|--------|-------|
+| Core Python modules | 20+ (~4,500 LOC) |
+| Temporal workflows | 9 durable workflows |
+| MCP tools exposed | 7 tools via stdio JSON-RPC |
+| REST API endpoints | 12+ JSON endpoints on port 8043 |
+| CLI commands | 10 commands via Click |
+| Nexus operations | 4 cross-namespace operations |
+| Context token reduction | ~98% vs raw schema dumping |
+
+## Technology Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Runtime | Python 3.12+, asyncio |
+| CLI | Click 8.0+ |
+| REST API | Flask 3.0+ with flask-cors |
+| Orchestration | Temporal (temporalio 1.7+) |
+| Infrastructure | Docker Compose (PostgreSQL 15, Temporal Server, Temporal UI) |
+| AI / Discovery | Google Gemini (google-genai 1.0+), HyperVisa video encoding |
+| Learning | Agent Lightning (optional, v0.3.1) |
+| Memory | Graphiti (FalkorDB), local JSONL fallback |
 
 ## Workspace Integration
 
-<Tabs items={["Seed Data", "Test Coverage", "Agent Surface"]}>
-  <Tab value="Seed Data">
-    The `server/routes.ts` file seeds Panopticon as a monitored repository entry. This seed record ensures that the wiki dashboard always has a Panopticon entry available for demonstration and development. The seed also creates an associated docs page entry that links the repository label to the wiki content surface.
-
-    ```typescript
-    // server/routes.ts -- seed excerpt
-    \{ name: "Panopticon", slug: "panopticon", audience: "both" \}
-    ```
-
-    The seeded repository entry feeds into the architecture diagram builder in `server/architecture.ts`, which uses `buildRepoSignature()` and `loadGitHubContext()` to construct a live dependency graph. Panopticon appears as a node in this graph with relationship edges scored by `scoreRelationshipReference()`.
-  </Tab>
-  <Tab value="Test Coverage">
-    The test suite at `tests/wikiagent.test.ts` uses Panopticon in intent classification assertions. When the agent receives a query mentioning "panopticon", it should classify the intent as a documentation lookup and route the request to the wiki surface. The `apps/agent/src/lib/intent.ts` module handles this classification.
-  </Tab>
+<Tabs items={["Agent Surface", "Agentic Layer", "Genesis Documentation"]}>
   <Tab value="Agent Surface">
-    The chat engine help text in `apps/agent/src/lib/chat-engine.ts` includes Panopticon as an example command suggestion. When a user opens the chat surface at `/chat` and asks "what can you do?", the agent lists Panopticon-related queries as one of the available actions. This closes the loop between seed data, docs content, and the interactive surface.
-
-    The wiki API client in `apps/web/lib/wiki-api-client.ts` fetches page summaries for Panopticon through `fetchPages()`, providing the dashboard at `/wiki` with title, audience, word count, and update timestamps for each sub-page.
+    The Kijko workspace seeds Panopticon as a repository entry in `server/routes.ts`. The chat engine at `apps/agent/src/lib/chat-engine.ts` includes Panopticon-related queries as example commands. The wiki API client fetches page summaries through `fetchPages()` for the dashboard at `/wiki`.
+  </Tab>
+  <Tab value="Agentic Layer">
+    The `agentic-layer/` directory contains the full agent definitions for Oracle, Smith, Trinity, and specialized GSD (Get Shit Done) agents. These agents use Panopticon as their MCP gateway -- tool calls from Smith's hooks and Trinity's optimizer all route through Temporal workflows.
+  </Tab>
+  <Tab value="Genesis Documentation">
+    The `genesis_spec/` directory contains a complete 12-section forensic analysis of the codebase, produced by the Forensic Code Review Supervisor agent. This includes architecture findings, code quality metrics, security audit results, and the executive summary.
   </Tab>
 </Tabs>
 
-## Pipeline Integration
-
-When the 7-agent documentation pipeline runs against Panopticon, the Audit Agent at `apps/agent/src/lib/pipeline/agents/audit-agent.ts` scans for exported symbols and compares them against existing wiki pages. The pipeline's `PipelineOrchestrator` passes Panopticon's repository path through the full agent chain:
-
-- **Audit** identifies documentation gaps by scanning code symbols
-- **IA** generates the page taxonomy (index, architecture, quickstart, api-reference, configuration)
-- **Writer** produces MDX content grounded in code references
-- **Verifier** validates that file paths and function names in the docs match the actual codebase
-- **QA** runs snippet verification in Docker sandboxes using the runtime registry in `docs-pipeline.ts`
-- **Monitor** tracks page freshness against code changes
-- **Publish** writes validated MDX to `wiki-content/docs/panopticon/`
-
-## Why Panopticon Matters
-
-In any infrastructure that grows beyond a handful of services, observability stops being optional and becomes the foundation that every other operational practice depends on. Incident response, capacity planning, deployment validation, and SLO tracking all require reliable telemetry. Panopticon centralizes that telemetry so you do not end up with fragmented monitoring where each team uses a different tool and nobody has the full picture.
-
-- **Unified data model**: Metrics, logs, and traces share a common labeling scheme, so you can correlate a spike in error rate with the specific trace that caused it and the log entries that describe it.
-- **Low-latency alerting**: Alert rules evaluate on the ingestion path, not on a polling loop, which means you get notified within seconds of a threshold breach.
-- **Retention flexibility**: Different metric types can have different retention windows. High-cardinality debug metrics might retain for 24 hours, while aggregate SLO data retains for 13 months.
-- **Query federation**: Dashboards can query across multiple Panopticon instances in a federated setup without requiring a centralized aggregation layer.
-
 <Callout type="info">
-If you are evaluating whether to add a new metric or trace, check the [Configuration guide](/docs/panopticon/configuration) first. There may already be an auto-instrumentation option that captures what you need without manual code changes.
+Panopticon is version 0.1.0. The API surface and configuration format are stabilizing but may change in minor releases. Pin your integration to the exact version if you need stability guarantees.
 </Callout>
-
-## Evidence Trail
-
-The following files in the repository reference the Panopticon label:
-
-| File | Reference |
-|---|---|
-| `server/routes.ts` | Seed data: repository entry + docs page entry |
-| `server/architecture.ts` | Architecture diagram node generation |
-| `tests/wikiagent.test.ts` | Intent classification test assertions |
-| `apps/agent/src/lib/chat-engine.ts` | Agent help text example commands |
-| `apps/agent/src/lib/intent.ts` | Intent classification routing |
-| `apps/web/lib/wiki-api-client.ts` | Dashboard page listing |
-| `wiki-content/docs/panopticon/` | Committed documentation pages |
-
-When modifying any of these surfaces, check the others for consistency. A rename in seed data should propagate to the test assertions and the agent help text.
 
 ## Next Steps
 
 <Cards>
-  <Card title="Architecture Deep Dive" href="/docs/panopticon/architecture">
-    Understand the five-subsystem topology and data flow from ingestion through query.
+  <Card title="Core Concepts" href="/docs/panopticon/concepts">
+    Understand progressive disclosure, durable execution, and the intelligence layer before diving into code.
   </Card>
   <Card title="Get Started" href="/docs/panopticon/quickstart">
-    Run Panopticon locally in under five minutes with Docker Compose.
+    Run Panopticon locally with Docker Compose and execute your first tool call.
   </Card>
-  <Card title="Panopticon 2.0" href="/docs/panopticon-2-0">
-    See the durable orchestration evolution with pipeline state persistence and resumable execution.
+  <Card title="Architecture Deep Dive" href="/docs/panopticon/architecture">
+    Explore the six-layer architecture with Mermaid diagrams and source code references.
   </Card>
 </Cards>

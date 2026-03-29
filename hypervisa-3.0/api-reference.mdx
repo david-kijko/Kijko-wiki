@@ -1,0 +1,387 @@
+---
+title: "API Reference"
+description: "Complete reference for HyperVisa 3.0's REST API, MCP tools, and CLI commands"
+icon: FileCode
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { TypeTable } from 'fumadocs-ui/components/type-table'
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion'
+
+HyperVisa 3.0 exposes three interfaces to the same underlying engine: a FastAPI REST API on port 8042, an MCP server over stdio, and a Click CLI. All three share the same `SessionStore`, models, and pipeline logic.
+
+## REST API
+
+The API runs via uvicorn on port 8042 with CORS enabled for all origins. Start it with:
+
+```bash
+hypervisa-api
+# or: uvicorn hypervisa.api:app --host 0.0.0.0 --port 8042
+```
+
+### Health
+
+```
+GET /health
+```
+
+Returns server health and version.
+
+**Response** `200 OK`:
+
+```json
+{"status": "ok", "version": "3.0.0"}
+```
+
+---
+
+### Ingest
+
+```
+POST /ingest
+```
+
+Ingest a source directory or git repo URL. Runs the full pipeline asynchronously: repomix, parse, segment, render, upload, persist. Returns `202 Accepted` with a task ID for polling.
+
+<TypeTable
+  type={{
+    source_dir: { type: 'string', description: 'Absolute path to a local directory to ingest', required: false },
+    repo_url: { type: 'string', description: 'Git repository URL to clone and ingest', required: false },
+    name: { type: 'string', description: 'Human-readable session name (defaults to directory basename)', required: false },
+    model: { type: 'string', description: 'Gemini model to use', default: '"gemini-2.5-flash-preview"' },
+  }}
+/>
+
+<Callout type="warn" title="One of source_dir or repo_url is required">
+  The request must include either `source_dir` for local directories or `repo_url` for git repositories. Providing neither returns `400 Bad Request`.
+</Callout>
+
+**Response** `202 Accepted`:
+
+```json
+{
+  "task_id": "a1b2c3d4e5f6...",
+  "session_id": "f6e5d4c3b2a1...",
+  "status": "accepted"
+}
+```
+
+Poll `GET /tasks/{task_id}` to track progress.
+
+---
+
+### Watch
+
+```
+POST /watch
+```
+
+Store a YouTube URL as a session segment. No rendering needed -- Gemini has native video understanding.
+
+<TypeTable
+  type={{
+    youtube_url: { type: 'string', description: 'YouTube video URL', required: true },
+    name: { type: 'string', description: 'Session name', required: false },
+  }}
+/>
+
+**Response** `200 OK`:
+
+```json
+{"session_id": "abc123...", "status": "ready"}
+```
+
+---
+
+### Query
+
+```
+POST /{session_id}/query
+```
+
+Query a session with a natural-language prompt. Returns the answer with verifiable citations.
+
+<TypeTable
+  type={{
+    prompt: { type: 'string', description: 'Natural-language question about the ingested codebase', required: true },
+  }}
+/>
+
+**Response** `200 OK`:
+
+```json
+{
+  "answer": "The authentication system uses JWT tokens...",
+  "citations": [
+    {
+      "frame": 42,
+      "column": 10,
+      "row": 5,
+      "file_path": "src/auth/tokens.py",
+      "confidence": 0.92
+    }
+  ],
+  "agent_responses": [...],
+  "conflict_level": "agreement",
+  "segments_queried": ["auth", "api"]
+}
+```
+
+**Error** `404`: Session not found. `409`: Session not ready (still ingesting or in error state).
+
+---
+
+### Sessions
+
+```
+GET /sessions
+```
+
+List all sessions with summary info.
+
+**Response** `200 OK`:
+
+```json
+{
+  "sessions": [
+    {
+      "id": "abc123...",
+      "name": "my-project",
+      "mode": "single",
+      "model": "gemini-2.5-flash-preview",
+      "status": "ready",
+      "total_tokens": 125000,
+      "created_at": "2026-03-29T10:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+```
+GET /sessions/{session_id}
+```
+
+Get detailed session info including segments, manifest, and token counts.
+
+---
+
+```
+DELETE /sessions/{session_id}
+```
+
+Delete a session and all its segments.
+
+**Response** `200 OK`:
+
+```json
+{"status": "deleted"}
+```
+
+---
+
+### Tasks
+
+```
+GET /tasks/{task_id}
+```
+
+Poll a background ingestion task for completion status.
+
+**Response** `200 OK`:
+
+```json
+{
+  "task_id": "a1b2c3d4...",
+  "session_id": "f6e5d4c3...",
+  "status": "completed",
+  "error": null
+}
+```
+
+Task status values: `pending`, `running`, `completed`, `failed`.
+
+---
+
+### Smith Endpoints
+
+```
+GET /smith/status
+```
+
+Returns Smith sidecar status and registered hook list.
+
+```
+GET /smith/traces/{session_id}?limit=50
+```
+
+Returns recent Smith trace events (JSONL entries) for the given session.
+
+---
+
+### Canon Endpoints
+
+```
+GET /canon?tier=reflex
+```
+
+List Canon entries, optionally filtered by tier (`reflex`, `habit`, `skill`).
+
+```
+POST /canon
+```
+
+Add a new Canon entry. Body must include `rule_id`, `tier`, `hook_target`, `condition`, `action`, and `message`.
+
+---
+
+## MCP Tools
+
+The MCP server (`hypervisa-mcp`) exposes tools via the Model Context Protocol over stdio transport. Add to your Claude Code MCP configuration:
+
+```json title="~/.claude/settings.json"
+{
+  "mcpServers": {
+    "hypervisa": {
+      "command": "hypervisa-mcp"
+    }
+  }
+}
+```
+
+### Core Tools
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `hypervisa_ingest` | Ingest a repo or directory | `source_dir` or `repo_url`, `name` |
+| `hypervisa_query` | Query a session with a prompt | `session_id`, `prompt` |
+| `hypervisa_locate` | Find relevant code for a ticket | `ticket_id`, `description`, `source_dir` |
+| `hypervisa_analyse` | Create implementation spec | `ticket_id`, `description`, `source_dir` |
+| `hypervisa_status` | Get session status | `session_id` (or `"all"`) |
+| `hypervisa_sessions` | List all sessions | (none) |
+
+### Smith Tools
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `canon_lookup` | Look up Canon rules for a hook | `hook_name`, `context` |
+| `smith_trace_query` | Query Smith trace events | `session_id`, `limit` |
+| `smith_intercept` | Run Smith intercept for a hook event | `hook_name`, `context`, `session_id` |
+| `exploration_run` | Run Layer 1 bash exploration | `root_path`, `query` |
+
+### Trinity Tools
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `trinity_status` | Get Trinity optimizer status | `session_id` |
+| `trinity_run_experiment` | Run a Trinity APO experiment | `session_id`, `traces` |
+
+---
+
+## CLI Commands
+
+The CLI is installed as the `hypervisa` command. Global options:
+
+<TypeTable
+  type={{
+    '--model': { type: 'string', description: 'Gemini model to use', default: '"gemini-2.5-flash-preview"' },
+    '--verbose': { type: 'boolean', description: 'Enable debug output', default: 'false' },
+    '--json': { type: 'boolean', description: 'Machine-readable JSON output', default: 'false' },
+    '--version': { type: 'boolean', description: 'Show version and exit' },
+  }}
+/>
+
+### `hypervisa ingest`
+
+Ingest a codebase from a local directory or git repo URL.
+
+```bash
+hypervisa ingest --source /path/to/repo --name my-project
+hypervisa ingest --repo https://github.com/user/repo.git --name my-project
+```
+
+<TypeTable
+  type={{
+    '--source': { type: 'PATH', description: 'Local directory to ingest (must exist)', required: false },
+    '--repo': { type: 'string', description: 'Git repository URL to clone and ingest', required: false },
+    '--name': { type: 'string', description: 'Session name', required: true },
+  }}
+/>
+
+### `hypervisa query`
+
+Query a session with a natural-language prompt.
+
+```bash
+hypervisa query --session my-project "How does authentication work?"
+hypervisa query --session my-project --json "List all API endpoints"
+```
+
+<TypeTable
+  type={{
+    '--session': { type: 'string', description: 'Session name to query', required: true },
+    'PROMPT': { type: 'string', description: 'The question to ask (positional argument)', required: true },
+  }}
+/>
+
+### `hypervisa watch`
+
+Store a YouTube URL for Gemini native video querying.
+
+```bash
+hypervisa watch --url "https://youtube.com/watch?v=..." --name my-video
+```
+
+### `hypervisa status`
+
+Show session status with segments and token counts.
+
+```bash
+hypervisa status --session my-project   # Single session
+hypervisa status --all                   # All sessions
+```
+
+### `hypervisa sessions`
+
+List all sessions in summary format.
+
+### `hypervisa clear`
+
+Delete sessions and associated video files.
+
+```bash
+hypervisa clear --session my-project     # Delete one session
+hypervisa clear --all --yes              # Delete all sessions
+```
+
+### `hypervisa explore`
+
+Run Layer 1 bash exploration on a directory.
+
+```bash
+hypervisa explore /path/to/repo "authentication module"
+```
+
+### `hypervisa smith`
+
+Smith sidecar management commands.
+
+### `hypervisa canon`
+
+Canon rule management (list, add, remove rules).
+
+### `hypervisa trinity`
+
+Trinity APO management (status, run experiments, view rollouts).
+
+<Cards>
+  <Card title="Quickstart" href="/docs/hypervisa-3.0/quickstart">
+    Get your first codebase ingested and queryable in under 5 minutes.
+  </Card>
+  <Card title="Deployment" href="/docs/hypervisa-3.0/deployment">
+    Deploy HyperVisa as a systemd service behind Caddy or nginx.
+  </Card>
+</Cards>

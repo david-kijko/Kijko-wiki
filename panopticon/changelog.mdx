@@ -1,0 +1,70 @@
+---
+title: Changelog
+description: "Version history, feature additions, and breaking changes for the Panopticon MCP gateway"
+icon: History
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+
+This page tracks the evolution of Panopticon from its initial release through the current version. Each entry documents new features, behavioral changes, and migration steps.
+
+## v0.1.0 (Current)
+
+**Durable MCP Gateway with Video-Encoded Tool Discovery**
+
+This is the initial release of Panopticon 2.0, rebuilding the system around Temporal workflows and HyperVisa video encoding.
+
+### Features
+
+- **Three-Tier Progressive Disclosure** -- Tool schemas rendered as 1fps MP4 video, uploaded to Gemini File API. Visual search returns top-3 matches at ~500 tokens instead of ~50,000+ tokens for all schemas.
+- **9 Temporal Workflows** -- Durable execution for tool calls, catalog refresh, memory consolidation, health checks, MCP service lifecycle, agent task orchestration, browse operations, and NotebookLM cookie refresh.
+- **12 Temporal Activities** -- Retryable work units including MCP server spawn/restart, tool execution, video rendering, Gemini upload, trace archival, cookie refresh, Claude chunk execution, and full health check.
+- **MCPProcessManager** -- Worker-level singleton owning all downstream MCP server subprocesses with per-server asyncio.Lock for serialized stdio access.
+- **Gemini Key Pool** -- Round-robin rotation across multiple API keys with per-key RPM tracking, rate-limit cooldown, and permanent disable for invalid keys. Supports mixed regular + Vertex AI Express keys.
+- **7 MCP Tools** -- `health_check`, `browse_tools`, `get_tool_details`, `execute_tool`, `smart_execute`, `execute_parallel`, `key_pool_health`.
+- **12 REST Endpoints** -- Health, servers, catalog, tools, agents, traces, trace stats, training, hive mind, memory, guardrails, temporal status.
+- **10 CLI Commands** -- `discover`, `browse`, `details`, `exec`, `ask`, `health`, `worker`, `serve`, `api`, `register`.
+- **4 Nexus Operations** -- Cross-namespace `execute_tool`, `browse_tools`, `refresh_catalog`, `health_check` via Temporal Nexus.
+- **Hive Mind** -- Collective intelligence with 3-success promotion threshold. Successful tool-query patterns promoted to shared Graphiti group.
+- **Episodic Memory** -- Graphiti-primary, JSONL-fallback execution history with `remember()` and `recall()` functions.
+- **Agent Lightning Integration** -- Trace capture with reward computation, daily rollout generation, and RL training pipeline.
+- **Smith Guardrails** -- Four enforcement levels (HIGH/MEDIUM/LOW/MINIMAL), always-blocked tools, HIGH-only tools, steering context injection, result secret scanning.
+- **Oracle Consultation** -- Zulip-based architectural guidance via `consult_oracle()`.
+- **Trinity Integration** -- APO optimization hint consumption from `~/.cortex/trinity/`.
+- **NotebookLM Cookie Refresh** -- Temporal workflow refreshing Google session cookies every 25 minutes via headless Chrome.
+
+### Infrastructure
+
+- Docker Compose with PostgreSQL 15, Temporal auto-setup, and Temporal UI
+- Python 3.12+ with asyncio throughout
+- Click 8.0+ CLI with version option
+- Flask 3.0+ REST API with CORS
+- HyperVisa video renderer (Tamzen fonts, Chromacode palette, 1920x1080, 1fps)
+
+### Known Limitations
+
+- No `panopticon config validate` command -- configuration errors surface at runtime
+- Key pool RPM limit and cooldown are hardcoded defaults (10 RPM, 60s cooldown)
+- Memory system paths (`~/.panopticon/memory/`) are not configurable via environment variables
+- Episodic memory Graphiti integration returns placeholder values (prepared but not fully wired)
+- The `execute_parallel` MCP tool delegates to `AgentTaskWorkflow` for dependency graphs but uses direct `asyncio.gather` for independent steps (different execution paths)
+
+## Pre-2.0 (Legacy)
+
+The original Panopticon was a monitoring and observability platform focused on metrics collection, time-series storage, and alerting. Panopticon 2.0 fundamentally reimagined the system as an MCP gateway for AI agent fleets.
+
+<Callout type="info">
+If you are looking for the legacy observability platform documentation, see the [panopticon-legacy.md](/docs/panopticon/panopticon-legacy) file preserved in the wiki directory. The legacy system's concepts (ingestion, processing, storage, query layers) are no longer part of the active codebase.
+</Callout>
+
+## Next Steps
+
+<Cards>
+  <Card title="Quickstart" href="/docs/panopticon/quickstart">
+    Get started with the current version.
+  </Card>
+  <Card title="Architecture" href="/docs/panopticon/architecture">
+    Understand the six-layer architecture introduced in v0.1.0.
+  </Card>
+</Cards>

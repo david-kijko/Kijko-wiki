@@ -1,0 +1,448 @@
+---
+title: "API Reference"
+description: "Complete reference for all Express.js REST and WebSocket endpoints with request/response schemas and privilege requirements"
+icon: Code
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { TypeTable } from 'fumadocs-ui/components/type-table'
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion'
+
+The Express server at `server/routes.ts` exposes 40+ endpoints organized into 9 resource groups. Every endpoint (except `/health` and GitHub webhooks) requires authentication via Keycloak session and a specific privilege key.
+
+## Authentication
+
+All API requests require a valid session cookie (`kijko_docs_sid`). The `attachAuthUser` middleware runs on every request after the session is established, populating `req.authUser` from the session store.
+
+Privilege-gated endpoints use `requirePrivilege("key")` middleware that returns `403` if the user lacks the required privilege key. Admin users (persona `admin` or client role `admin_all`) bypass privilege checks.
+
+```typescript
+// Example: only users with "pages:write" can create wiki pages
+app.post("/api/wiki/pages", requirePrivilege("pages:write"), (req, res) => {
+  // ...
+});
+```
+
+## Health & Status
+
+### `GET /health`
+
+Returns server health. No authentication required.
+
+```json
+{ "ok": true, "status": { "status": "healthy", "version": "1.0.0", "uptimeSeconds": 3600 } }
+```
+
+### `GET /api/status`
+
+**Privilege:** `dashboard:view`
+
+Returns full system status including agent state, pending confirmations, notebook reachability, component health, monitored repo count, total page count, and last build timestamp.
+
+<TypeTable
+  type={{
+    status: { description: "System health string", type: "string" },
+    version: { description: "Application version", type: "string" },
+    uptimeSeconds: { description: "Server uptime in seconds", type: "number" },
+    components: { description: "Component health map (e.g., database, keycloak)", type: "Record<string, string>" },
+    monitoredRepos: { description: "Number of monitored GitHub repositories", type: "number" },
+    totalPages: { description: "Total wiki pages in the database", type: "number" },
+    lastBuild: { description: "ISO timestamp of last build event", type: "string | null" },
+    agentState: { description: "Current agent state", type: "'idle' | 'processing' | 'building' | 'deploying' | 'error'" },
+    pendingConfirmations: { description: "Number of actions awaiting user approval", type: "number" },
+    notebookReachable: { description: "Whether OpenNotebook is accessible", type: "boolean" },
+  }}
+/>
+
+---
+
+## Wiki Pages
+
+### `GET /api/wiki/pages`
+
+**Privilege:** `pages:view`
+
+List wiki pages with optional filtering and pagination.
+
+| Parameter | Location | Type | Default | Description |
+|---|---|---|---|---|
+| `audience` | query | `string` | - | Filter by audience: `internal`, `external`, or `both` |
+| `search` | query | `string` | - | Full-text search across title, content, and slug |
+| `limit` | query | `number` | `50` | Maximum pages to return |
+| `offset` | query | `number` | `0` | Pagination offset |
+
+**Response:**
+```json
+{
+  "pages": [
+    {
+      "id": 1,
+      "slug": "getting-started",
+      "title": "Getting Started",
+      "audience": "both",
+      "author": "agent",
+      "wordCount": 450,
+      "content": "...",
+      "metadata": "{\"tags\":[\"quickstart\"]}",
+      "createdAt": "2026-03-28T10:00:00.000Z",
+      "updatedAt": "2026-03-28T12:00:00.000Z"
+    }
+  ],
+  "total": 42
+}
+```
+
+### `GET /api/wiki/pages/:slug`
+
+**Privilege:** `pages:view`
+
+Fetch a single wiki page by slug.
+
+**Response:** `WikiPage` object or `404` if not found.
+
+### `POST /api/wiki/pages`
+
+**Privilege:** `pages:write`
+
+Create a new wiki page. Request body is validated against `insertWikiPageSchema` (Drizzle-Zod).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `slug` | `string` | Yes | Unique URL slug |
+| `title` | `string` | Yes | Page title |
+| `audience` | `string` | No | `internal`, `external`, or `both` (default: `internal`) |
+| `author` | `string` | No | Author name (default: `agent`) |
+| `wordCount` | `number` | No | Word count (default: `0`) |
+| `content` | `string` | No | Markdown content (default: empty) |
+| `metadata` | `string` | No | JSON metadata string (default: `{}`) |
+| `createdAt` | `string` | Yes | ISO timestamp |
+| `updatedAt` | `string` | Yes | ISO timestamp |
+
+**Response:** `201` with created page, or `409` if slug already exists.
+
+### `PUT /api/wiki/pages/:slug`
+
+**Privilege:** `pages:write`
+
+Update an existing page. Accepts partial `InsertWikiPage` fields.
+
+**Response:** Updated `WikiPage` or `404`.
+
+### `DELETE /api/wiki/pages/:slug`
+
+**Privilege:** `pages:write`
+
+Delete a wiki page by slug.
+
+**Response:** `204` on success, `404` if not found.
+
+---
+
+## Wiki Docs (MDX Reader)
+
+These endpoints serve rendered content from `wiki-content/docs/` for the Fumadocs reader and the legacy SPA wiki reader.
+
+### `GET /api/wiki/docs`
+
+**Privilege:** `pages:view`
+
+List all committed docs pages with navigation metadata.
+
+**Response:**
+```json
+{
+  "pages": [
+    {
+      "slug": "getting-started",
+      "title": "Getting Started",
+      "href": "/wiki/getting-started",
+      "description": "Set up the Kijko Docs platform locally",
+      "audience": "both"
+    }
+  ],
+  "total": 12
+}
+```
+
+### `GET /api/wiki/docs/:slug`
+
+**Privilege:** `pages:view`
+
+Fetch a rendered docs page by slug. Returns the full page payload including rendered HTML (with hash-routing rewritten links), outline (table of contents), breadcrumbs, and previous/next navigation.
+
+<TypeTable
+  type={{
+    requestedSlug: { description: "The slug as requested", type: "string" },
+    canonicalSlug: { description: "Resolved canonical slug after alias lookup", type: "string" },
+    title: { description: "Page title from frontmatter", type: "string" },
+    description: { description: "Page description from frontmatter", type: "string" },
+    audience: { description: "Target audience", type: "string" },
+    tags: { description: "Page tags from frontmatter", type: "string[]" },
+    body: { description: "Raw markdown body (without frontmatter)", type: "string" },
+    html: { description: "Rendered HTML with hash-routed links", type: "string" },
+    outline: { description: "Heading hierarchy for TOC", type: "WikiDocOutlineItem[]" },
+    breadcrumbs: { description: "Navigation breadcrumbs", type: "WikiDocBreadcrumb[]" },
+    navigation: { description: "Full page navigation list", type: "WikiDocNavItem[]" },
+    previousPage: { description: "Previous page in navigation", type: "WikiDocNavItem | null" },
+    nextPage: { description: "Next page in navigation", type: "WikiDocNavItem | null" },
+  }}
+/>
+
+---
+
+## Repositories
+
+### `GET /api/repos`
+
+**Privilege:** `repos:view`
+
+List all monitored GitHub repositories.
+
+### `GET /api/repos/available`
+
+**Privilege:** `repos:write`
+
+List available GitHub repositories that can be added for monitoring. Respects the `GITHUB_ALLOWED_OWNER` policy and excludes already-monitored repos.
+
+| Parameter | Location | Type | Description |
+|---|---|---|---|
+| `search` | query | `string` | Optional search filter for repo names |
+
+### `POST /api/repos`
+
+**Privilege:** `repos:write`
+
+Add a GitHub repository for monitoring. Fetches the latest commit SHA and validates ownership against `GITHUB_ALLOWED_OWNER`.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `url` | `string` (URL) | Yes | GitHub repository URL |
+| `branch` | `string` | No | Branch to monitor (default: `main`) |
+| `pollIntervalMinutes` | `number` | No | Polling interval in minutes (1-1440, default: 10) |
+
+**Response:** `201` (created) or `200` (updated if already exists). Invalidates the architecture diagram cache.
+
+### `DELETE /api/repos/:id`
+
+**Privilege:** `repos:write`
+
+Remove a monitored repository by ID. Invalidates the architecture diagram cache.
+
+---
+
+## Architecture
+
+### `GET /api/architecture/diagram`
+
+**Privilege:** `architecture:view`
+
+Returns the current architecture diagram as a JSON graph with typed nodes (gateway, service, module, repo, infrastructure, tool, group) and labeled edges.
+
+### `POST /api/architecture/refresh`
+
+**Privilege:** `architecture:refresh`
+
+Force-refresh the architecture diagram. Creates a build event recording the refresh. Returns the regenerated diagram.
+
+---
+
+## Builds
+
+### `GET /api/builds`
+
+**Privilege:** `builds:view`
+
+List all build events sorted by creation time.
+
+### `POST /api/build`
+
+**Privilege:** `builds:trigger`
+
+Trigger a manual documentation build. Creates a build event with the specified audience and reason.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `audience` | `string` | `both` | Target audience for the build |
+| `reason` | `string` | `Manual rebuild` | Reason for triggering the build |
+
+---
+
+## Chat
+
+### `GET /api/chat/:sessionId`
+
+**Privilege:** `chat:view`
+
+Retrieve chat message history for a session.
+
+### `POST /api/chat/:sessionId`
+
+**Privilege:** `chat:use`
+
+Send a chat message via REST (non-streaming). The request is validated against `chatTurnRequestSchema`.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `content` | `string` | Yes | Message text (1-4000 chars) |
+| `confirmationId` | `string` | No | ID of a pending confirmation to approve |
+
+### `WebSocket /api/ws/chat`
+
+**Privilege:** `chat:use`
+
+Streaming chat interface. See [Architecture > WebSocket Chat](/docs/kijko-frontend/architecture#websocket-chat) for the full protocol specification.
+
+---
+
+## Proofshot
+
+Proofshot provides visual verification of UI features using a headless browser.
+
+### `GET /api/proofshot/status`
+
+**Privilege:** `proofshot:view`
+
+Returns current proofshot session status.
+
+### `POST /api/proofshot/install-default`
+
+**Privilege:** `proofshot:run`
+
+Install default browser binaries for proofshot.
+
+### `POST /api/proofshot/start`
+
+**Privilege:** `proofshot:run`
+
+Start a proofshot verification session.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `description` | `string` | No | Session description (max 200 chars) |
+| `url` | `string` | No | Target URL to verify |
+| `run` | `string` | No | Test script content (max 2000 chars) |
+| `port` | `number` | No | Port to target (1-65535) |
+| `headed` | `boolean` | No | Run browser in headed mode (default: false) |
+
+### `POST /api/proofshot/stop`
+
+**Privilege:** `proofshot:run`
+
+Stop the running proofshot session.
+
+### `GET /proofshot/artifacts/*`
+
+**Privilege:** `proofshot:view`
+
+Serve proofshot artifact files (screenshots, videos, reports).
+
+---
+
+## Swarm Proxy
+
+### `ALL /swarm/app/*`
+
+**Privilege:** `swarm:view`
+
+Reverse proxy to the Swarm UI. Forwards all HTTP methods and handles WebSocket upgrades.
+
+### `ALL /swarm/api/*`
+
+**Privilege:** `swarm:view`
+
+Reverse proxy to the Swarm Server API. Injects `x-api-key` from `SWARM_API_KEY` environment variable.
+
+### `GET /api/swarm/config`
+
+**Privilege:** `swarm:view`
+
+Returns Swarm configuration (embed URL, enabled status).
+
+### `GET /api/swarm/health`
+
+**Privilege:** `swarm:view`
+
+Health check for the Swarm backend. Returns reachability, version, and embed URL.
+
+---
+
+## Notebook Sources
+
+### `GET /api/notebook/sources`
+
+**Privilege:** `notebook:view`
+
+List NotebookLM sources with optional type and search filtering.
+
+---
+
+## Admin
+
+### `GET /api/admin/users`
+
+**Privilege:** `admin:users`
+
+List all managed Keycloak users with their persona profiles and privileges.
+
+### `POST /api/admin/users`
+
+**Privilege:** `admin:users`
+
+Create a managed user in Keycloak. Assigns persona profile and privilege keys.
+
+### `PUT /api/admin/users/:id`
+
+**Privilege:** `admin:users`
+
+Update a managed user. Cannot update yourself. Cannot demote/disable the last admin.
+
+### `DELETE /api/admin/users/:id`
+
+**Privilege:** `admin:users`
+
+Delete a managed user. Cannot delete yourself. Cannot delete the last admin.
+
+### `POST /api/admin/users/:id/reset-password`
+
+**Privilege:** `admin:users`
+
+Reset a user's password. Minimum 8 characters. Cannot reset your own password through this endpoint.
+
+---
+
+## GitHub Webhooks
+
+### `POST /api/webhook/github` (and `/webhook/github`)
+
+No authentication required (uses webhook signature verification).
+
+Receives GitHub push webhooks. Verifies the `x-hub-signature-256` header against `GITHUB_WEBHOOK_SECRET`, then creates a build event.
+
+<Callout type="info">
+Both `/api/webhook/github` and `/webhook/github` paths are registered for backwards compatibility with existing webhook configurations.
+</Callout>
+
+---
+
+## Auth Routes
+
+### `GET /api/auth/login`
+
+Initiates the Keycloak OIDC login flow. Generates PKCE challenge, stores state in session, and redirects to Keycloak's authorization endpoint.
+
+### `GET /api/auth/callback`
+
+Handles the OIDC callback. Exchanges the authorization code for tokens, fetches user info, derives privileges, and stores the session.
+
+### `GET /api/auth/me`
+
+Returns the current authenticated user's profile, privileges, and navigation catalog. Returns `401` if not authenticated.
+
+### `POST /api/auth/logout`
+
+Destroys the session and optionally redirects to Keycloak's end-session endpoint.
+
+### `POST /api/auth/refresh`
+
+Force-refresh the access token using the stored refresh token. Returns the updated user profile.

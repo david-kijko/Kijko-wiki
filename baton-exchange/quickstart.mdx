@@ -1,0 +1,224 @@
+---
+title: "Quickstart"
+description: "Install Baton Exchange for Claude Code in under 5 minutes. Automatic context relay activates on your next session."
+icon: "Rocket"
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Step, Steps } from 'fumadocs-ui/components/steps'
+
+Get Baton Exchange running with Claude Code so your sessions never lose context again. After completing these steps, every new session starts with a compressed baton carrying your project's purpose, progress, and hard-won lessons.
+
+<Callout type="info" title="Prerequisites">
+  - **Python 3.10+** with pip
+  - **Claude Code** CLI installed (`claude`)
+  - **cxdb** server running (ports 9009/9010) -- see [cxdb repo](https://github.com/Anansitrading/cxdb)
+  - **HyperVisa API** running (port 8042) -- see [HyperVisa CLI repo](https://github.com/Anansitrading/hypervisa-cli)
+  - **Gemini API key** (`GEMINI_API_KEY` environment variable)
+</Callout>
+
+<Steps>
+  <Step>
+    ### Start Required Services
+
+    Baton Exchange requires cxdb (conversation storage) and HyperVisa (baton synthesis). Start both before installing:
+
+    <Tabs items={['systemd', 'Manual']}>
+      <Tab value="systemd">
+        ```bash title="Start cxdb and HyperVisa via systemd"
+        # cxdb: binary protocol on 9009, HTTP API on 9010
+        sudo systemctl enable --now cxdb.service
+
+        # HyperVisa API on port 8042
+        sudo systemctl enable --now hypervisa-api.service
+        ```
+      </Tab>
+      <Tab value="Manual">
+        ```bash title="Start services manually"
+        # Terminal 1: cxdb server
+        cxdb-server --binary-port 9009 --http-port 9010
+
+        # Terminal 2: HyperVisa API
+        export GEMINI_API_KEY="your-gemini-api-key"
+        hypervisa-api  # runs on port 8042
+        ```
+      </Tab>
+    </Tabs>
+
+    Verify both are running:
+
+    ```bash title="Health checks"
+    # cxdb HTTP health check
+    curl -s http://localhost:9010/healthz
+    # Expected: {"status":"ok"}
+
+    # HyperVisa health check
+    curl -s http://localhost:8042/api/hypervisa/sessions
+    # Expected: JSON array of sessions
+    ```
+  </Step>
+
+  <Step>
+    ### Clone and Install
+
+    ```bash title="Install Baton Exchange"
+    git clone https://github.com/Anansitrading/baton-exchange.git
+    cd baton-exchange
+
+    # Install Python dependencies
+    pip install -r requirements.txt
+
+    # Run the installer
+    ./install.sh
+    ```
+
+    The installer performs six steps:
+    1. Creates `~/.claude/hooks/` and `~/.cortex/baton/` directories
+    2. Copies the statusline script to `~/.claude/hooks/baton-statusline.py`
+    3. Symlinks `cortex/` and `hypervisa/` to `~/.cortex/baton/`
+    4. Installs Python dependencies (blake3, httpx, msgpack, google-genai)
+    5. Configures `~/.claude/settings.json` with SessionStart hook, PreCompact hook, and statusline
+    6. Runs verification checks
+
+    Expected output:
+
+    ```
+    === Baton Exchange Installer ===
+
+    [1/6] Creating directories...
+    [2/6] Installing statusline...
+    [3/6] Linking cortex and hypervisa code...
+    [4/6] Checking Python dependencies...
+      All dependencies satisfied
+    [5/6] Configuring Claude Code settings...
+      Added SessionStart hook
+      Added PreCompact hook
+      Set statusline to baton-statusline.py
+    [6/6] Verifying installation...
+
+      [OK] baton-statusline.py installed
+      [OK] cortex code linked
+      [OK] hypervisa code linked
+      [OK] cxdb_client importable
+      [OK] hypervisa.baton importable
+
+    === Installation complete (5/5 checks passed) ===
+    ```
+  </Step>
+
+  <Step>
+    ### Set Your Gemini API Key
+
+    The baton synthesis engine uses Gemini 3 Flash to compress session history. Export your API key:
+
+    ```bash title="Set Gemini API key"
+    export GEMINI_API_KEY="your-gemini-api-key-here"
+    ```
+
+    <Callout type="warn" title="Persistent environment variable">
+      Add the export to your shell profile (`~/.bashrc`, `~/.zshrc`) so it persists across terminal sessions. The HyperVisa API process also needs this key.
+    </Callout>
+  </Step>
+
+  <Step>
+    ### Launch Claude Code
+
+    Start a Claude Code session in any project directory:
+
+    ```bash title="Start a Claude Code session"
+    cd ~/Projects/my-project
+    claude
+    ```
+
+    On session start, you should see the baton hook activate in the logs. The statusline will render in the terminal footer:
+
+    ```
+    Opus 4.6 | zap implement t0 Build authentication system... @5s | my-project full0/empty10 2% ->80%
+    -- session learnings --
+      play Setting up project for first time
+    ```
+
+    For a brand new project (no prior sessions), the baton will be minimal. As you work and sessions compact, the baton grows richer with each cycle.
+  </Step>
+
+  <Step>
+    ### Verify the Relay Loop
+
+    To verify the full relay loop is working, trigger a manual compaction and then start a new session:
+
+    ```bash title="Verify the relay loop"
+    # Check that baton cache files exist after a session
+    ls -la ~/.cortex/baton/
+    # Expected: baton-{project}.json, last-baton.json, last-inject.json
+
+    # Read the cached baton
+    cat ~/.cortex/baton/last-baton.json | python3 -m json.tool
+
+    # Check the project registry
+    cat ~/.cortex/baton/project-contexts.json | python3 -m json.tool
+    ```
+
+    After at least one compaction event, you should see:
+    - `baton-{project}.json` with the three-pillar baton
+    - `project-contexts.json` with your project's cxdb context ID
+    - `last-inject.json` with injection telemetry
+  </Step>
+</Steps>
+
+## What Happens Next
+
+Once installed, Baton Exchange runs silently in the background:
+
+- **Every SessionStart**: A fresh baton is synthesized and injected. The agent sees your purpose, progress, and gotchas immediately.
+- **Every PreCompact**: The session is recorded to the project timeline. Gotchas, decisions, and progress are persisted.
+- **The statusline**: Shows real-time baton state, context usage, and accumulated learnings in the terminal footer.
+
+No manual intervention required. The relay loop is fully automatic.
+
+## Uninstalling
+
+To cleanly remove Baton Exchange without losing your baton state data:
+
+```bash title="Uninstall Baton Exchange"
+cd baton-exchange
+./uninstall.sh
+```
+
+This removes hooks and the statusline from `~/.claude/settings.json` but preserves all baton state data at `~/.cortex/baton/`. To remove everything:
+
+```bash title="Remove all state (destructive)"
+rm -rf ~/.cortex/baton/
+```
+
+## Troubleshooting
+
+<Callout type="warn" title="cxdb connection refused">
+  If you see `ConnectionRefusedError` in the baton hook logs, cxdb is not running. Start it with `systemctl start cxdb` or run `cxdb-server` manually. The hook gracefully skips baton injection when cxdb is unreachable -- sessions still work, just without context relay.
+</Callout>
+
+<Callout type="warn" title="HyperVisa API unreachable">
+  If the baton hook cannot reach `localhost:8042`, start the HyperVisa API. Without it, no baton synthesis occurs. The PreCompact hook (write side) still records to cxdb -- only the read side is affected.
+</Callout>
+
+<Callout type="warn" title="Gemini returns invalid JSON">
+  Occasionally Gemini wraps JSON output in markdown code fences. The synthesis engine strips these automatically. If synthesis still fails, a fallback baton is generated from raw cxdb timeline data -- no LLM required.
+</Callout>
+
+## Next Steps
+
+<Cards>
+  <Card title="Core Concepts" href="/docs/baton-exchange/concepts">
+    Understand the three-pillar model and how the relay loop works.
+  </Card>
+  <Card title="Configuration" href="/docs/baton-exchange/configuration">
+    Tune environment variables, service ports, and statusline behavior.
+  </Card>
+  <Card title="Architecture" href="/docs/baton-exchange/architecture">
+    See the full component topology and data flow diagrams.
+  </Card>
+  <Card title="API Reference" href="/docs/baton-exchange/api-reference">
+    Complete reference for CxdbClient, baton relay functions, and the synthesis engine.
+  </Card>
+</Cards>
