@@ -1,0 +1,17 @@
+{
+  "root": true,
+  "pages": [
+    "index",
+    "getting-started",
+    "---Panopticon---",
+    "panopticon",
+    "---Panopticon 2.0---",
+    "panopticon-2-0",
+    "---HyperVisa 3.0---",
+    "hypervisa-3-0",
+    "---Kijko Frontend---",
+    "kijko-frontend",
+    "---Baton Exchange---",
+    "baton-exchange"
+  ]
+}

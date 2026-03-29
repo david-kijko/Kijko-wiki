@@ -1,0 +1,166 @@
+---
+title: Kijko Frontend
+description: "Next.js docs surface with Fumadocs MDX rendering, CopilotKit chat, wiki dashboard, and legacy client migration"
+icon: Globe
+---
+
+The Kijko frontend is a Next.js application at `apps/web` that serves four distinct browser surfaces: a docs landing page, a Fumadocs MDX reader, a CopilotKit chat interface, and a wiki dashboard. It replaced the legacy Vite-based client at `client/` as the primary browser experience, though the legacy app remains in the repository as migration context. The frontend communicates with the agent backend at port 4111 through a typed API client and renders committed MDX files from `wiki-content/docs/` using Fumadocs component injection.
+
+## Route Architecture
+
+The frontend uses Next.js App Router with four top-level routes, each serving a different purpose in the documentation workflow.
+
+| Route | File | Purpose |
+|---|---|---|
+| `/` | `apps/web/app/page.tsx` | Docs landing surface with ecosystem overview |
+| `/docs/[[...slug]]` | `apps/web/app/docs/[[...slug]]/page.tsx` | Fumadocs catch-all MDX reader with sidebar and TOC |
+| `/chat` | `apps/web/app/chat/page.tsx` | CopilotKit control surface for agent interaction |
+| `/wiki` | `apps/web/app/wiki/page.tsx` | Wiki dashboard showing monitored repos and page listings |
+
+The catch-all docs route at `/docs/[[...slug]]` is the core of the reading experience. It resolves slugs through `apps/web/lib/docs.ts`, which searches for matching files in `wiki-content/docs/` with a priority order: `\{slug\}/index.mdx` > `\{slug\}/index.md` > `\{slug\}.mdx` > `\{slug\}.md`. This resolution logic in `resolveDocFile()` enables both flat pages like `getting-started.mdx` and nested sub-pages like `panopticon/architecture.mdx`.
+
+```typescript
+// apps/web/lib/docs.ts -- slug resolution priority
+function resolveDocFile(slug: string): string | null {
+  // For slugs with sub-paths (e.g., "panopticon/architecture")
+  if (slug.includes("/")) {
+    const mdxPath = path.join(docsRoot, `${slug}.mdx`);
+    if (existsSync(mdxPath)) return mdxPath;
+    const mdPath = path.join(docsRoot, `${slug}.md`);
+    if (existsSync(mdPath)) return mdPath;
+    return null;
+  }
+
+  // For top-level slugs, check subdirectory index first
+  const subDirIndex = path.join(docsRoot, slug, "index.mdx");
+  if (existsSync(subDirIndex)) return subDirIndex;
+  // ... falls back to direct file lookup
+}
+```
+
+<Callout type="info">
+The three routes serve different cognitive needs. `/docs` answers "what does this system do?", `/chat` answers "how do I operate it?", and `/wiki` answers "what pages exist and how fresh are they?" Keeping them separated prevents the common brownfield mistake of mixing navigation, reading, and action-taking into a single screen.
+</Callout>
+
+## MDX Component System
+
+Fumadocs components are injected automatically into every MDX page through the component registry at `apps/web/components/mdx/index.tsx`. You never need import statements in MDX files -- the following components are available globally:
+
+```typescript
+// apps/web/components/mdx/index.tsx
+export const mdxComponents: Record<string, ComponentType<any>> = {
+  Callout,        // from fumadocs-ui/components/callout
+  Card, Cards,    // from fumadocs-ui/components/card
+  Step, Steps,    // from fumadocs-ui/components/steps
+  Tab, Tabs,      // from fumadocs-ui/components/tabs
+  Accordion, Accordions,  // from fumadocs-ui/components/accordion
+  TypeTable,      // from fumadocs-ui/components/type-table
+  ImageZoom,      // from fumadocs-ui/components/image-zoom
+  FeedbackWidget, // custom -- "Was this page helpful?" widget
+  EditPageLink,   // custom -- "Edit on GitHub" link
+};
+```
+
+The `FeedbackWidget` at `apps/web/components/mdx/feedback-widget.tsx` renders a "Was this page helpful?" prompt with Yes/No buttons. The `EditPageLink` at `apps/web/components/mdx/edit-page-link.tsx` generates GitHub edit links using the pattern `https://github.com/kijko/kijko-docs/blob/main/wiki-content/docs/\{slug\}.mdx`.
+
+## Docs Sidebar
+
+The sidebar component at `apps/web/components/docs/docs-sidebar.tsx` provides three capabilities:
+
+1. **Page navigation** grouped by journey stage (Add, Check, Query, Iterate) with search filtering
+2. **Table of contents** generated from the active page's heading hierarchy
+3. **Theme switching** between light and dark modes, persisted to localStorage under `kijko-docs-theme`
+
+The sidebar receives its page list from `apps/web/lib/docs.ts`, which reads metadata from frontmatter and groups pages by the `journeyStage` field. The search implementation is client-side, filtering against concatenated title + description + slug strings.
+
+```typescript
+// apps/web/components/docs/docs-sidebar.tsx -- journey stage grouping
+const order = ["add", "check", "query", "iterate"];
+const labels: Record<string, string> = {
+  add: "Add",
+  check: "Check",
+  query: "Query",
+  iterate: "Iterate"
+};
+```
+
+## Wiki Dashboard
+
+The wiki dashboard at `/wiki` provides an operational view of all monitored repositories and their documentation pages. It is composed of five components in `apps/web/components/wiki/`:
+
+- **`wiki-dashboard.tsx`** (117 lines) -- main dashboard orchestrator
+- **`pages-table.tsx`** (146 lines) -- sortable table of wiki pages with title, slug, audience, author, word count, and relative timestamps
+- **`filter-tabs.tsx`** (51 lines) -- audience filter tabs (All, Internal, External) with page counts
+- **`search-input.tsx`** (78 lines) -- search across page content
+- **`audience-badge.tsx`** (27 lines) -- colored badges for audience classification (both, internal, external)
+
+The dashboard fetches data through the API client at `apps/web/lib/wiki-api-client.ts`, which communicates with the agent backend:
+
+```typescript
+// apps/web/lib/wiki-api-client.ts -- key API functions
+fetchRepos(): Promise<Repo[]>              // GET /api/wiki/repos
+fetchPages(repo, audience?): Promise<WikiPageSummary[]>  // GET /api/wiki/{repo}/pages
+fetchAllPages(): Promise<(WikiPageSummary & { repoName, repoSlug })[]>
+searchPages(repo, query): Promise<SearchResult[]>  // POST /api/wiki/{repo}/search
+```
+
+## Agent Communication
+
+The frontend communicates with the agent backend through two channels:
+
+1. **HTTP API** via `apps/web/lib/api.ts` which resolves the agent base URL from `NEXT_PUBLIC_AGENT_URL` environment variable (default: `http://127.0.0.1:4111`)
+2. **WebSocket** for real-time chat via `NEXT_PUBLIC_AGENT_WS_URL` (default: `ws://127.0.0.1:4111`)
+
+The CopilotKit integration at `apps/web/app/api/copilotkit/route.ts` proxies chat requests to the agent's WebSocket endpoint. The adapter at `apps/web/lib/wikiagent-copilot-adapter.ts` translates between CopilotKit's message format and the agent's `chatTurnRequestSchema` from `@kijko/shared`.
+
+## Source Configuration
+
+The Fumadocs source configuration lives in `apps/web/source.config.ts` and `apps/web/.source/`. The source pipeline:
+
+1. `source.config.ts` defines the content source pointing at `wiki-content/docs/`
+2. `.source/server.ts` handles server-side content resolution
+3. `.source/browser.ts` handles client-side navigation
+4. `.source/dynamic.ts` provides dynamic page generation for catch-all routes
+
+## Legacy Client Boundary
+
+The old `client/` app remains in the repository and is worth understanding as migration context:
+
+- `client/src/App.tsx` -- the original hash-routed Vite frontend
+- `client/src/components/ui/` -- a full Radix UI component library (accordion, alert-dialog, avatar, breadcrumb, calendar, carousel, chart, checkbox, command, context-menu, dialog, drawer, dropdown-menu, form, and 10+ more)
+- `client/src/pages/pages.tsx` -- the legacy page viewer that renders raw content in `<pre>` blocks
+
+The legacy client still ships the full `@radix-ui` component set and is referenced in the Dockerfile's `.dockerignore`. It is not served in production but helps explain the design decisions in the new `apps/web` surface.
+
+<Callout type="warn">
+If you modify shared types in `packages/shared/` or `@shared/schema`, verify that both `apps/web` and the legacy `client/` still compile. The legacy client imports from `@shared/schema` through the `server/routes.ts` API layer.
+</Callout>
+
+## Verification
+
+```bash
+# Start the dev server
+pnpm --filter @kijko/wikiagent-web dev
+
+# Typecheck
+pnpm --filter @kijko/wikiagent-web check
+
+# Full production build (validates SSR and MDX)
+pnpm --filter @kijko/wikiagent-web build
+```
+
+The build step is the most important verification because it compiles all MDX pages, validates frontmatter, and performs SSR rendering. A successful build confirms that all page slugs resolve, all MDX components are registered, and no syntax errors exist in the documentation content.
+
+## Next Steps
+
+<Cards>
+  <Card title="Getting Started" href="/docs/getting-started">
+    The full local development setup including agent, frontend, and verification commands.
+  </Card>
+  <Card title="Panopticon" href="/docs/panopticon">
+    Example of a multi-page wiki structure with sub-pages rendered through the catch-all route.
+  </Card>
+  <Card title="Baton Exchange" href="/docs/baton-exchange">
+    How context handoffs work between the docs surface and the agent chat.
+  </Card>
+</Cards>

@@ -1,0 +1,582 @@
+[
+  {
+    "url": "https://supermemory.ai/docs/intro",
+    "slug": "intro",
+    "title": "Overview \u2014 What is Supermemory? - supermemory | Memory API for the AI era",
+    "description": "",
+    "has_screenshot": true,
+    "md_length": 6526,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/intro\\#how-does-it-work-at-a-glance)  How does it work? (at a glance)",
+      "[\u200b](https://supermemory.ai/docs/intro\\#supermemory-is-context-engineering)  Supermemory is context engineering.",
+      "[\u200b](https://supermemory.ai/docs/intro\\#next-steps)  Next steps"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/quickstart",
+    "slug": "quickstart",
+    "title": "Quickstart - supermemory | Memory API for the AI era",
+    "description": "Make your first API call to Supermemory - add and retrieve memories.",
+    "has_screenshot": true,
+    "md_length": 5273,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/quickstart\\#memory-api)  Memory API"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/concepts/how-it-works",
+    "slug": "concepts/how-it-works",
+    "title": "How Supermemory Works - supermemory | Memory API for the AI era",
+    "description": "Understanding the knowledge graph architecture that powers intelligent memory",
+    "has_screenshot": true,
+    "md_length": 7684,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/concepts/how-it-works\\#the-mental-model)  The Mental Model",
+      "Traditional Systems",
+      "Supermemory",
+      "[\u200b](https://supermemory.ai/docs/concepts/how-it-works\\#documents-vs-memories)  Documents vs Memories",
+      "[\u200b](https://supermemory.ai/docs/concepts/how-it-works\\#memory-relationships)  Memory Relationships",
+      "[\u200b](https://supermemory.ai/docs/concepts/how-it-works\\#processing-pipeline)  Processing Pipeline",
+      "[\u200b](https://supermemory.ai/docs/concepts/how-it-works\\#next-steps)  Next Steps"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/concepts/graph-memory",
+    "slug": "concepts/graph-memory",
+    "title": "How Graph Memory Works - supermemory | Memory API for the AI era",
+    "description": "Automatic memory evolution, knowledge updates, and intelligent forgetting",
+    "has_screenshot": true,
+    "md_length": 6956,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/concepts/graph-memory\\#memory-relationships)  Memory Relationships",
+      "[\u200b](https://supermemory.ai/docs/concepts/graph-memory\\#automatic-memory-extraction)  Automatic Memory Extraction",
+      "[\u200b](https://supermemory.ai/docs/concepts/graph-memory\\#automatic-forgetting)  Automatic Forgetting",
+      "[\u200b](https://supermemory.ai/docs/concepts/graph-memory\\#memory-types)  Memory Types",
+      "[\u200b](https://supermemory.ai/docs/concepts/graph-memory\\#what-you-don%E2%80%99t-do)  What You Don\u2019t Do",
+      "[\u200b](https://supermemory.ai/docs/concepts/graph-memory\\#learn-more)  Learn More"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/concepts/memory-vs-rag",
+    "slug": "concepts/memory-vs-rag",
+    "title": "Memory vs RAG: Understanding the Difference - supermemory | Memory API for the AI era",
+    "description": "Learn why agent memory and RAG are fundamentally different, and when to use each approach",
+    "has_screenshot": true,
+    "md_length": 11233,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/concepts/memory-vs-rag\\#the-core-problem)  The Core Problem",
+      "[\u200b](https://supermemory.ai/docs/concepts/memory-vs-rag\\#documents-vs-memories-in-supermemory)  Documents vs Memories in Supermemory",
+      "[\u200b](https://supermemory.ai/docs/concepts/memory-vs-rag\\#why-rag-fails-as-memory)  Why RAG Fails as Memory",
+      "[\u200b](https://supermemory.ai/docs/concepts/memory-vs-rag\\#the-technical-difference)  The Technical Difference",
+      "[\u200b](https://supermemory.ai/docs/concepts/memory-vs-rag\\#when-to-use-each)  When to Use Each",
+      "Use RAG For",
+      "Use Memory For",
+      "[\u200b](https://supermemory.ai/docs/concepts/memory-vs-rag\\#real-world-examples)  Real-World Examples",
+      "[\u200b](https://supermemory.ai/docs/concepts/memory-vs-rag\\#how-supermemory-handles-both)  How Supermemory Handles Both",
+      "[\u200b](https://supermemory.ai/docs/concepts/memory-vs-rag\\#the-bottom-line)  The Bottom Line",
+      "[\u200b](https://supermemory.ai/docs/concepts/memory-vs-rag\\#next-steps)  Next Steps"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/concepts/super-rag",
+    "slug": "concepts/super-rag",
+    "title": "SuperRAG (Managed RAG as a service) - supermemory | Memory API for the AI era",
+    "description": "Supermemory provides a managed RAG solution - extraction, indexing, storing, and retrieval.",
+    "has_screenshot": true,
+    "md_length": 8099,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/concepts/super-rag\\#automatic-content-intelligence)  Automatic Content Intelligence",
+      "[\u200b](https://supermemory.ai/docs/concepts/super-rag\\#smart-chunking-by-content-type)  Smart Chunking by Content Type",
+      "[\u200b](https://supermemory.ai/docs/concepts/super-rag\\#hybrid-memory-+-rag)  Hybrid Memory + RAG",
+      "Traditional RAG",
+      "Memory System",
+      "[\u200b](https://supermemory.ai/docs/concepts/super-rag\\#search-optimization)  Search Optimization",
+      "[\u200b](https://supermemory.ai/docs/concepts/super-rag\\#why-it%E2%80%99s-%E2%80%9Csuper%E2%80%9D)  Why It\u2019s \u201cSuper\u201d",
+      "[\u200b](https://supermemory.ai/docs/concepts/super-rag\\#next-steps)  Next Steps"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/concepts/content-types",
+    "slug": "concepts/content-types",
+    "title": "Supported Content Types - supermemory | Memory API for the AI era",
+    "description": "All the content formats Supermemory can ingest and process",
+    "has_screenshot": true,
+    "md_length": 7995,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/concepts/content-types\\#text-content)  Text Content",
+      "[\u200b](https://supermemory.ai/docs/concepts/content-types\\#urls-&-web-pages)  URLs & Web Pages",
+      "[\u200b](https://supermemory.ai/docs/concepts/content-types\\#documents)  Documents",
+      "[\u200b](https://supermemory.ai/docs/concepts/content-types\\#code-&-markdown)  Code & Markdown",
+      "[\u200b](https://supermemory.ai/docs/concepts/content-types\\#images)  Images",
+      "[\u200b](https://supermemory.ai/docs/concepts/content-types\\#audio-&-video)  Audio & Video",
+      "[\u200b](https://supermemory.ai/docs/concepts/content-types\\#structured-data)  Structured Data",
+      "[\u200b](https://supermemory.ai/docs/concepts/content-types\\#file-upload)  File Upload",
+      "[\u200b](https://supermemory.ai/docs/concepts/content-types\\#auto-detection)  Auto-Detection",
+      "[\u200b](https://supermemory.ai/docs/concepts/content-types\\#content-limits)  Content Limits",
+      "[\u200b](https://supermemory.ai/docs/concepts/content-types\\#next-steps)  Next Steps"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/concepts/filtering",
+    "slug": "concepts/filtering",
+    "title": "Organizing & Filtering Memories - supermemory | Memory API for the AI era",
+    "description": "Use container tags and metadata to organize and retrieve memories",
+    "has_screenshot": true,
+    "md_length": 11607,
+    "sections": [
+      "Container Tags",
+      "Metadata Filtering",
+      "[\u200b](https://supermemory.ai/docs/concepts/filtering\\#container-tags)  Container Tags",
+      "[\u200b](https://supermemory.ai/docs/concepts/filtering\\#metadata)  Metadata",
+      "[\u200b](https://supermemory.ai/docs/concepts/filtering\\#quick-reference)  Quick Reference",
+      "[\u200b](https://supermemory.ai/docs/concepts/filtering\\#next-steps)  Next Steps"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/concepts/user-profiles",
+    "slug": "concepts/user-profiles",
+    "title": "User Profiles - supermemory | Memory API for the AI era",
+    "description": "Automatically maintained context about your users",
+    "has_screenshot": true,
+    "md_length": 7411,
+    "sections": [
+      "Instant Context",
+      "Auto-Updated",
+      "[\u200b](https://supermemory.ai/docs/concepts/user-profiles\\#why-profiles)  Why Profiles?",
+      "[\u200b](https://supermemory.ai/docs/concepts/user-profiles\\#static-vs-dynamic)  Static vs Dynamic",
+      "[\u200b](https://supermemory.ai/docs/concepts/user-profiles\\#how-it-works)  How It Works",
+      "[\u200b](https://supermemory.ai/docs/concepts/user-profiles\\#profiles-+-search)  Profiles + Search",
+      "[\u200b](https://supermemory.ai/docs/concepts/user-profiles\\#use-cases)  Use Cases",
+      "[\u200b](https://supermemory.ai/docs/concepts/user-profiles\\#next-steps)  Next Steps"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/integrations/agent-framework",
+    "slug": "integrations/agent-framework",
+    "title": "Microsoft Agent Framework - supermemory | Memory API for the AI era",
+    "description": "Add persistent memory to Microsoft Agent Framework agents with Supermemory",
+    "has_screenshot": true,
+    "md_length": 13411,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/integrations/agent-framework\\#what-you-can-do)  What you can do",
+      "[\u200b](https://supermemory.ai/docs/integrations/agent-framework\\#setup)  Setup",
+      "[\u200b](https://supermemory.ai/docs/integrations/agent-framework\\#connection)  Connection",
+      "[\u200b](https://supermemory.ai/docs/integrations/agent-framework\\#context-provider-recommended)  Context provider (recommended)",
+      "[\u200b](https://supermemory.ai/docs/integrations/agent-framework\\#memory-tools)  Memory tools",
+      "[\u200b](https://supermemory.ai/docs/integrations/agent-framework\\#chat-middleware)  Chat middleware",
+      "[\u200b](https://supermemory.ai/docs/integrations/agent-framework\\#memory-modes)  Memory modes",
+      "[\u200b](https://supermemory.ai/docs/integrations/agent-framework\\#example-support-agent-with-memory)  Example: support agent with memory",
+      "[\u200b](https://supermemory.ai/docs/integrations/agent-framework\\#error-handling)  Error handling",
+      "[\u200b](https://supermemory.ai/docs/integrations/agent-framework\\#related-docs)  Related docs"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/integrations/claude-code",
+    "slug": "integrations/claude-code",
+    "title": "Claude Code - supermemory | Memory API for the AI era",
+    "description": "Claude Code Supermemory Plugin \u2014 persistent memory across coding sessions",
+    "has_screenshot": true,
+    "md_length": 6137,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/integrations/claude-code\\#get-your-api-key)  Get Your API Key",
+      "[\u200b](https://supermemory.ai/docs/integrations/claude-code\\#install-the-plugin)  Install the Plugin",
+      "[\u200b](https://supermemory.ai/docs/integrations/claude-code\\#how-it-works)  How It Works",
+      "[\u200b](https://supermemory.ai/docs/integrations/claude-code\\#commands)  Commands",
+      "[\u200b](https://supermemory.ai/docs/integrations/claude-code\\#configuration)  Configuration",
+      "[\u200b](https://supermemory.ai/docs/integrations/claude-code\\#next-steps)  Next Steps"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/integrations/mastra",
+    "slug": "integrations/mastra",
+    "title": "Mastra - supermemory | Memory API for the AI era",
+    "description": "Add persistent memory to Mastra AI agents with Supermemory processors",
+    "has_screenshot": true,
+    "md_length": 15708,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/integrations/mastra\\#installation)  Installation",
+      "[\u200b](https://supermemory.ai/docs/integrations/mastra\\#quick-start)  Quick Start",
+      "[\u200b](https://supermemory.ai/docs/integrations/mastra\\#how-it-works)  How It Works",
+      "[\u200b](https://supermemory.ai/docs/integrations/mastra\\#configuration-options)  Configuration Options",
+      "[\u200b](https://supermemory.ai/docs/integrations/mastra\\#memory-search-modes)  Memory Search Modes",
+      "Saving Conversations",
+      "[\u200b](https://supermemory.ai/docs/integrations/mastra\\#custom-prompt-templates)  Custom Prompt Templates",
+      "[\u200b](https://supermemory.ai/docs/integrations/mastra\\#direct-processor-usage)  Direct Processor Usage",
+      "[\u200b](https://supermemory.ai/docs/integrations/mastra\\#using-requestcontext)  Using RequestContext",
+      "[\u200b](https://supermemory.ai/docs/integrations/mastra\\#verbose-logging)  Verbose Logging",
+      "[\u200b](https://supermemory.ai/docs/integrations/mastra\\#working-with-existing-processors)  Working with Existing Processors",
+      "[\u200b](https://supermemory.ai/docs/integrations/mastra\\#api-reference)  API Reference",
+      "[\u200b](https://supermemory.ai/docs/integrations/mastra\\#environment-variables)  Environment Variables",
+      "[\u200b](https://supermemory.ai/docs/integrations/mastra\\#error-handling)  Error Handling",
+      "[\u200b](https://supermemory.ai/docs/integrations/mastra\\#next-steps)  Next Steps"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/integrations/openai",
+    "slug": "integrations/openai",
+    "title": "OpenAI SDK - supermemory | Memory API for the AI era",
+    "description": "Memory tools for OpenAI function calling with Supermemory integration",
+    "has_screenshot": true,
+    "md_length": 16778,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/integrations/openai\\#withsupermemory-wrapper)  withSupermemory Wrapper",
+      "[\u200b](https://supermemory.ai/docs/integrations/openai\\#function-calling-tools)  Function Calling Tools",
+      "[\u200b](https://supermemory.ai/docs/integrations/openai\\#installation-2)  Installation",
+      "[\u200b](https://supermemory.ai/docs/integrations/openai\\#quick-start-2)  Quick Start",
+      "[\u200b](https://supermemory.ai/docs/integrations/openai\\#configuration)  Configuration",
+      "[\u200b](https://supermemory.ai/docs/integrations/openai\\#available-tools)  Available Tools",
+      "[\u200b](https://supermemory.ai/docs/integrations/openai\\#individual-tools)  Individual Tools",
+      "[\u200b](https://supermemory.ai/docs/integrations/openai\\#complete-chat-example)  Complete Chat Example",
+      "[\u200b](https://supermemory.ai/docs/integrations/openai\\#error-handling)  Error Handling",
+      "[\u200b](https://supermemory.ai/docs/integrations/openai\\#api-reference)  API Reference",
+      "[\u200b](https://supermemory.ai/docs/integrations/openai\\#environment-variables-2)  Environment Variables",
+      "[\u200b](https://supermemory.ai/docs/integrations/openai\\#development)  Development",
+      "[\u200b](https://supermemory.ai/docs/integrations/openai\\#next-steps)  Next Steps"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/integrations/langchain",
+    "slug": "integrations/langchain",
+    "title": "LangChain - supermemory | Memory API for the AI era",
+    "description": "Build AI agents with persistent memory using LangChain and Supermemory",
+    "has_screenshot": true,
+    "md_length": 14420,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/integrations/langchain\\#overview)  Overview",
+      "[\u200b](https://supermemory.ai/docs/integrations/langchain\\#setup)  Setup",
+      "[\u200b](https://supermemory.ai/docs/integrations/langchain\\#basic-integration)  Basic Integration",
+      "[\u200b](https://supermemory.ai/docs/integrations/langchain\\#core-concepts)  Core Concepts",
+      "[\u200b](https://supermemory.ai/docs/integrations/langchain\\#complete-example-code-review-assistant)  Complete Example: Code Review Assistant",
+      "Developer Profile",
+      "Current Focus",
+      "Relevant Past Reviews",
+      "[\u200b](https://supermemory.ai/docs/integrations/langchain\\#advanced-patterns)  Advanced Patterns",
+      "[\u200b](https://supermemory.ai/docs/integrations/langchain\\#next-steps)  Next Steps"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/connectors/overview",
+    "slug": "connectors/overview",
+    "title": "Connectors Overview - supermemory | Memory API for the AI era",
+    "description": "Integrate Google Drive, Gmail, Notion, OneDrive, GitHub and Web Crawler to automatically sync documents into your knowledge base",
+    "has_screenshot": true,
+    "md_length": 9112,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/connectors/overview\\#supported-connectors)  Supported Connectors",
+      "[\u200b](https://supermemory.ai/docs/connectors/overview\\#quick-start)  Quick Start",
+      "[\u200b](https://supermemory.ai/docs/connectors/overview\\#how-connectors-work)  How Connectors Work",
+      "[\u200b](https://supermemory.ai/docs/connectors/overview\\#connection-management)  Connection Management"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/connectors/github",
+    "slug": "connectors/github",
+    "title": "GitHub Connector - supermemory | Memory API for the AI era",
+    "description": "Connect GitHub repositories to sync documentation files into your Supermemory knowledge base",
+    "has_screenshot": true,
+    "md_length": 19352,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/connectors/github\\#quick-setup)  Quick Setup",
+      "[\u200b](https://supermemory.ai/docs/connectors/github\\#supported-document-types)  Supported Document Types",
+      "[\u200b](https://supermemory.ai/docs/connectors/github\\#incremental-sync-with-webhooks)  Incremental Sync with Webhooks",
+      "[\u200b](https://supermemory.ai/docs/connectors/github\\#connection-management)  Connection Management",
+      "[\u200b](https://supermemory.ai/docs/connectors/github\\#advanced-configuration)  Advanced Configuration"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/connectors/notion",
+    "slug": "connectors/notion",
+    "title": "Notion Connector - supermemory | Memory API for the AI era",
+    "description": "Sync Notion pages, databases, and blocks with real-time webhooks and workspace integration",
+    "has_screenshot": true,
+    "md_length": 16241,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/connectors/notion\\#quick-setup)  Quick Setup",
+      "[\u200b](https://supermemory.ai/docs/connectors/notion\\#supported-content-types)  Supported Content Types",
+      "[\u200b](https://supermemory.ai/docs/connectors/notion\\#delete-connection)  Delete Connection",
+      "[\u200b](https://supermemory.ai/docs/connectors/notion\\#advanced-configuration)  Advanced Configuration",
+      "[\u200b](https://supermemory.ai/docs/connectors/notion\\#workspace-permissions)  Workspace Permissions",
+      "[\u200b](https://supermemory.ai/docs/connectors/notion\\#database-integration)  Database Integration"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/api-reference/memories/create-memories-directly",
+    "slug": "api-reference/memories/create-memories-directly",
+    "title": "Create memories directly - supermemory | Memory API for the AI era",
+    "description": "Create memories directly, bypassing the document ingestion workflow. Generates embeddings and makes them immediately searchable.",
+    "has_screenshot": true,
+    "md_length": 4761,
+    "sections": []
+  },
+  {
+    "url": "https://supermemory.ai/docs/api-reference/search/search-memory-entries",
+    "slug": "api-reference/search/search-memory-entries",
+    "title": "Search memory entries - supermemory | Memory API for the AI era",
+    "description": "Search memory entries - Low latency for conversational",
+    "has_screenshot": true,
+    "md_length": 9640,
+    "sections": []
+  },
+  {
+    "url": "https://supermemory.ai/docs/api-reference/manage-documents/add-document",
+    "slug": "api-reference/manage-documents/add-document",
+    "title": "Add document - supermemory | Memory API for the AI era",
+    "description": "Add a document with any content type (text, url, file, etc.) and metadata",
+    "has_screenshot": true,
+    "md_length": 4291,
+    "sections": []
+  },
+  {
+    "url": "https://supermemory.ai/docs/cookbook/overview",
+    "slug": "cookbook/overview",
+    "title": "Cookbook - supermemory | Memory API for the AI era",
+    "description": "Complete examples and recipes for building with Supermemory",
+    "has_screenshot": true,
+    "md_length": 3868,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/cookbook/overview\\#available-recipes)  Available Recipes",
+      "[\u200b](https://supermemory.ai/docs/cookbook/overview\\#coming-soon)  Coming Soon",
+      "Research Assistant",
+      "Learning Platform",
+      "Code Documentation Bot",
+      "Meeting Intelligence",
+      "[\u200b](https://supermemory.ai/docs/cookbook/overview\\#getting-help)  Getting Help",
+      "[\u200b](https://supermemory.ai/docs/cookbook/overview\\#contributing-recipes)  Contributing Recipes"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/cookbook/personal-assistant",
+    "slug": "cookbook/personal-assistant",
+    "title": "Personal AI Assistant - supermemory | Memory API for the AI era",
+    "description": "Build an AI assistant that remembers user preferences, habits, and context across conversations",
+    "has_screenshot": true,
+    "md_length": 34473,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/cookbook/personal-assistant\\#what-you%E2%80%99ll-build)  What You\u2019ll Build",
+      "[\u200b](https://supermemory.ai/docs/cookbook/personal-assistant\\#choose-your-implementation)  Choose Your Implementation",
+      "[\u200b](https://supermemory.ai/docs/cookbook/personal-assistant\\#prerequisites)  Prerequisites",
+      "[\u200b](https://supermemory.ai/docs/cookbook/personal-assistant\\#python-implementation)  Python Implementation",
+      "[\u200b](https://supermemory.ai/docs/cookbook/personal-assistant\\#typescript-implementation)  TypeScript Implementation",
+      "[\u200b](https://supermemory.ai/docs/cookbook/personal-assistant\\#testing-your-assistant)  Testing Your Assistant",
+      "[\u200b](https://supermemory.ai/docs/cookbook/personal-assistant\\#verify-memory-storage)  Verify Memory Storage",
+      "[\u200b](https://supermemory.ai/docs/cookbook/personal-assistant\\#troubleshooting)  Troubleshooting"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/cookbook/customer-support",
+    "slug": "cookbook/customer-support",
+    "title": "Customer Support Bot - supermemory | Memory API for the AI era",
+    "description": "Build an intelligent support system that remembers customer history and provides personalized help",
+    "has_screenshot": true,
+    "md_length": 39614,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/cookbook/customer-support\\#what-you%E2%80%99ll-build)  What You\u2019ll Build",
+      "[\u200b](https://supermemory.ai/docs/cookbook/customer-support\\#prerequisites)  Prerequisites",
+      "[\u200b](https://supermemory.ai/docs/cookbook/customer-support\\#implementation)  Implementation",
+      "[\u200b](https://supermemory.ai/docs/cookbook/customer-support\\#testing-your-support-system)  Testing Your Support System"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/add-memories",
+    "slug": "add-memories",
+    "title": "Ingesting context to supermemory - supermemory | Memory API for the AI era",
+    "description": "Add text, files, and URLs to Supermemory",
+    "has_screenshot": true,
+    "md_length": 12093,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/add-memories\\#quick-start)  Quick Start",
+      "[\u200b](https://supermemory.ai/docs/add-memories\\#updating-content)  Updating Content",
+      "[\u200b](https://supermemory.ai/docs/add-memories\\#upload-files)  Upload Files",
+      "[\u200b](https://supermemory.ai/docs/add-memories\\#parameters)  Parameters",
+      "[\u200b](https://supermemory.ai/docs/add-memories\\#processing-pipeline)  Processing Pipeline",
+      "[\u200b](https://supermemory.ai/docs/add-memories\\#next-steps)  Next Steps"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/search",
+    "slug": "search",
+    "title": "Search - supermemory | Memory API for the AI era",
+    "description": "Semantic search across your memories and documents",
+    "has_screenshot": true,
+    "md_length": 8018,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/search\\#quick-start)  Quick Start",
+      "[\u200b](https://supermemory.ai/docs/search\\#parameters)  Parameters",
+      "[\u200b](https://supermemory.ai/docs/search\\#filtering)  Filtering",
+      "[\u200b](https://supermemory.ai/docs/search\\#query-optimization)  Query Optimization",
+      "[\u200b](https://supermemory.ai/docs/search\\#chatbot-example)  Chatbot Example",
+      "[\u200b](https://supermemory.ai/docs/search\\#next-steps)  Next Steps"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/memory-operations",
+    "slug": "memory-operations",
+    "title": "Memory Operations - supermemory | Memory API for the AI era",
+    "description": "Advanced memory operations (v4 API)",
+    "has_screenshot": true,
+    "md_length": 8048,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/memory-operations\\#create-memories)  Create Memories",
+      "[\u200b](https://supermemory.ai/docs/memory-operations\\#forget-memory)  Forget Memory",
+      "[\u200b](https://supermemory.ai/docs/memory-operations\\#update-memory-versioned)  Update Memory (Versioned)",
+      "[\u200b](https://supermemory.ai/docs/memory-operations\\#next-steps)  Next Steps"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/document-operations",
+    "slug": "document-operations",
+    "title": "Document Operations - supermemory | Memory API for the AI era",
+    "description": "List, get, update, and delete your ingested documents",
+    "has_screenshot": true,
+    "md_length": 8426,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/document-operations\\#list-documents)  List Documents",
+      "[\u200b](https://supermemory.ai/docs/document-operations\\#get-document)  Get Document",
+      "[\u200b](https://supermemory.ai/docs/document-operations\\#update-document)  Update Document",
+      "[\u200b](https://supermemory.ai/docs/document-operations\\#delete-documents)  Delete Documents",
+      "[\u200b](https://supermemory.ai/docs/document-operations\\#processing-queue)  Processing Queue",
+      "[\u200b](https://supermemory.ai/docs/document-operations\\#next-steps)  Next Steps"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/memorybench/overview",
+    "slug": "memorybench/overview",
+    "title": "MemoryBench - supermemory | Memory API for the AI era",
+    "description": "Open-source framework for standardized, reproducible benchmarks of memory layer providers",
+    "has_screenshot": true,
+    "md_length": 3326,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/memorybench/overview\\#works-with-any-memory-provider)  Works with any memory provider",
+      "[\u200b](https://supermemory.ai/docs/memorybench/overview\\#contribute)  Contribute"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/memorybench/quickstart",
+    "slug": "memorybench/quickstart",
+    "title": "Quick Start - supermemory | Memory API for the AI era",
+    "description": "Run your first benchmark evaluation in 3 steps",
+    "has_screenshot": true,
+    "md_length": 4149,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/memorybench/quickstart\\#1-run-your-first-benchmark)  1\\. Run Your First Benchmark",
+      "[\u200b](https://supermemory.ai/docs/memorybench/quickstart\\#2-view-results)  2\\. View Results",
+      "[\u200b](https://supermemory.ai/docs/memorybench/quickstart\\#3-compare-providers)  3\\. Compare Providers",
+      "[\u200b](https://supermemory.ai/docs/memorybench/quickstart\\#sample-output)  Sample Output",
+      "[\u200b](https://supermemory.ai/docs/memorybench/quickstart\\#what%E2%80%99s-next)  What\u2019s Next"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/memory-router/overview",
+    "slug": "memory-router/overview",
+    "title": "Overview - supermemory | Memory API for the AI era",
+    "description": "Transform any LLM into an intelligent agent with unlimited context and persistent memory",
+    "has_screenshot": true,
+    "md_length": 9412,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/memory-router/overview\\#what-is-the-memory-router)  What is the Memory Router?",
+      "[\u200b](https://supermemory.ai/docs/memory-router/overview\\#how-it-works)  How It Works",
+      "[\u200b](https://supermemory.ai/docs/memory-router/overview\\#key-benefits)  Key Benefits",
+      "[\u200b](https://supermemory.ai/docs/memory-router/overview\\#when-to-use-the-memory-router)  When to Use the Memory Router",
+      "[\u200b](https://supermemory.ai/docs/memory-router/overview\\#supported-providers)  Supported Providers",
+      "[\u200b](https://supermemory.ai/docs/memory-router/overview\\#authentication)  Authentication",
+      "[\u200b](https://supermemory.ai/docs/memory-router/overview\\#how-memories-work)  How Memories Work",
+      "[\u200b](https://supermemory.ai/docs/memory-router/overview\\#response-headers)  Response Headers",
+      "[\u200b](https://supermemory.ai/docs/memory-router/overview\\#error-handling)  Error Handling",
+      "[\u200b](https://supermemory.ai/docs/memory-router/overview\\#rate-limits-&-pricing)  Rate Limits & Pricing"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/model-enhancement/getting-started",
+    "slug": "model-enhancement/getting-started",
+    "title": "Getting Started with Model Enhancement - supermemory | Memory API for the AI era",
+    "description": "Superpower your LLM in one line",
+    "has_screenshot": true,
+    "md_length": 5659,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/model-enhancement/getting-started\\#get-your-supermemory-api-key)  Get your supermemory API key",
+      "[\u200b](https://supermemory.ai/docs/model-enhancement/getting-started\\#get-your-llm-provider%E2%80%99s-api-key)  Get your LLM provider\u2019s API key",
+      "[\u200b](https://supermemory.ai/docs/model-enhancement/getting-started\\#choose-your-endpoint)  Choose your endpoint",
+      "[\u200b](https://supermemory.ai/docs/model-enhancement/getting-started\\#making-your-first-request)  Making your first request"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/supermemory-mcp/introduction",
+    "slug": "supermemory-mcp/introduction",
+    "title": "About Supermemory MCP - supermemory | Memory API for the AI era",
+    "description": "Give your AI assistants persistent memory with the Model Context Protocol",
+    "has_screenshot": true,
+    "md_length": 5564,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/supermemory-mcp/introduction\\#what-supermemory-mcp-does)  What Supermemory MCP Does",
+      "[\u200b](https://supermemory.ai/docs/supermemory-mcp/introduction\\#core-workflow)  Core Workflow",
+      "[\u200b](https://supermemory.ai/docs/supermemory-mcp/introduction\\#security-and-privacy)  Security and Privacy"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/deployment/self-hosting",
+    "slug": "deployment/self-hosting",
+    "title": "Self Hosting - supermemory | Memory API for the AI era",
+    "description": "Deploy your own instance of the supermemory API on Cloudflare Workers",
+    "has_screenshot": true,
+    "md_length": 12208,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/deployment/self-hosting\\#prerequisites)  Prerequisites",
+      "[\u200b](https://supermemory.ai/docs/deployment/self-hosting\\#setup-deployment-files)  Setup deployment files",
+      "[\u200b](https://supermemory.ai/docs/deployment/self-hosting\\#configure-environment-variables)  Configure environment variables",
+      "[\u200b](https://supermemory.ai/docs/deployment/self-hosting\\#deploy)  Deploy",
+      "[\u200b](https://supermemory.ai/docs/deployment/self-hosting\\#updating-your-deployment)  Updating Your Deployment"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/authentication",
+    "slug": "authentication",
+    "title": "Authentication - supermemory | Memory API for the AI era",
+    "description": "API keys, scoped keys, and connector branding.",
+    "has_screenshot": true,
+    "md_length": 5094,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/authentication\\#api-keys)  API Keys",
+      "[\u200b](https://supermemory.ai/docs/authentication\\#connector-branding)  Connector Branding",
+      "[\u200b](https://supermemory.ai/docs/authentication\\#scoped-api-keys)  Scoped API Keys"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/changelog/overview",
+    "slug": "changelog/overview",
+    "title": "Changelog - supermemory | Memory API for the AI era",
+    "description": "New updates and improvements to Supermemory",
+    "has_screenshot": true,
+    "md_length": 35826,
+    "sections": []
+  },
+  {
+    "url": "https://supermemory.ai/docs/migration/from-mem0",
+    "slug": "migration/from-mem0",
+    "title": "Migrating from Mem0 to Supermemory - supermemory | Memory API for the AI era",
+    "description": "Complete guide to migrate your data and applications from Mem0 to Supermemory",
+    "has_screenshot": true,
+    "md_length": 8596,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/migration/from-mem0\\#why-migrate-to-supermemory)  Why Migrate to Supermemory?",
+      "[\u200b](https://supermemory.ai/docs/migration/from-mem0\\#quick-migration-all-in-one)  Quick Migration (All-in-One)",
+      "[\u200b](https://supermemory.ai/docs/migration/from-mem0\\#step-by-step-migration)  Step-by-Step Migration",
+      "[\u200b](https://supermemory.ai/docs/migration/from-mem0\\#api-migration-reference)  API Migration Reference",
+      "[\u200b](https://supermemory.ai/docs/migration/from-mem0\\#next-steps)  Next Steps"
+    ]
+  },
+  {
+    "url": "https://supermemory.ai/docs/vibe-coding",
+    "slug": "vibe-coding",
+    "title": "Vibe Coding Setup - supermemory | Memory API for the AI era",
+    "description": "Automatic Supermemory integration using AI coding agents",
+    "has_screenshot": true,
+    "md_length": 12294,
+    "sections": [
+      "[\u200b](https://supermemory.ai/docs/vibe-coding\\#quick-setup)  Quick Setup",
+      "[\u200b](https://supermemory.ai/docs/vibe-coding\\#mcp-server)  MCP Server",
+      "[\u200b](https://supermemory.ai/docs/vibe-coding\\#the-prompt)  The Prompt",
+      "[\u200b](https://supermemory.ai/docs/vibe-coding\\#claude-code-skill)  Claude Code Skill",
+      "[\u200b](https://supermemory.ai/docs/vibe-coding\\#next-steps)  Next Steps"
+    ]
+  }
+]

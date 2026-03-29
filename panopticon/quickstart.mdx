@@ -1,0 +1,299 @@
+---
+title: Quickstart
+description: "Get Panopticon running locally in under five minutes with Docker Compose and push your first metric"
+icon: Rocket
+---
+
+This guide walks you through a complete Panopticon setup on your local machine. By the end, you will have the ingestion API accepting metrics, the query API serving dashboard requests, and a sample scrape target feeding data into the system. The entire process takes less than five minutes if you already have Docker installed.
+
+## Prerequisites
+
+<Callout type="info" title="Before you begin">
+  - **Docker** (20.10 or later) and **Docker Compose** (v2) installed and running
+  - **curl** or **httpie** for testing API endpoints
+  - **Node.js 18+** if you want to run the sample instrumentation script
+  - At least **2 GB of free RAM** for the standalone container
+</Callout>
+
+## Setup
+
+<Steps>
+  <Step>
+    ### Clone and navigate to the workspace
+
+    Start by cloning the Kijko Docs repository if you have not already. The Panopticon configuration lives alongside the rest of the workspace infrastructure.
+
+    ```bash
+    git clone https://github.com/kijko-ai/Kijko_Docs.git
+    cd Kijko_Docs
+    ```
+
+    If you already have the repository cloned, make sure you are on the latest main branch:
+
+    ```bash
+    git pull origin main
+    ```
+
+    The workspace root contains the Docker Compose files and configuration directories that Panopticon expects. Running from the workspace root ensures that volume mounts and relative paths resolve correctly.
+  </Step>
+
+  <Step>
+    ### Create the configuration file
+
+    Panopticon reads its configuration from a YAML file at startup. The full configuration reference is in the [Configuration](/docs/panopticon/configuration) page. Create a minimal configuration that enables the ingestion API, the query API, and a self-monitoring scrape target.
+
+    <Tabs items={["Minimal Config", "Full Config"]}>
+      <Tab value="Minimal Config">
+        ```yaml title="config/panopticon.yaml"
+        server:
+          ingestion_port: 9091
+          query_port: 9090
+          mode: standalone
+
+        storage:
+          data_dir: /var/lib/panopticon
+          retention:
+            hot: 48h
+            warm: 720h
+            cold: 8760h
+
+        scrape:
+          targets:
+            - url: http://localhost:9090/metrics
+              interval: 15s
+              labels:
+                service: panopticon
+                environment: local
+        ```
+        This minimal configuration runs all subsystems in a single process, stores data locally, and scrapes its own metrics endpoint every 15 seconds. The three retention tiers give you 48 hours of full-resolution data, 30 days of 1-minute downsampled data, and 365 days of hourly aggregates.
+      </Tab>
+      <Tab value="Full Config">
+        ```yaml title="config/panopticon.yaml"
+        server:
+          ingestion_port: 9091
+          query_port: 9090
+          mode: standalone
+          max_connections: 1000
+          read_timeout: 30s
+          write_timeout: 10s
+
+        storage:
+          data_dir: /var/lib/panopticon
+          retention:
+            hot: 48h
+            warm: 720h
+            cold: 8760h
+          block_size: 2h
+          compaction:
+            enabled: true
+            interval: 1h
+
+        processing:
+          aggregation:
+            enabled: true
+            windows: [1m, 5m, 1h]
+          anomaly_detection:
+            enabled: true
+            baseline_period: 24h
+            z_score_threshold: 3.5
+          alerting:
+            enabled: true
+            evaluation_interval: 10s
+
+        scrape:
+          targets:
+            - url: http://localhost:9090/metrics
+              interval: 15s
+              labels:
+                service: panopticon
+                environment: local
+
+        logging:
+          level: info
+          format: json
+        ```
+        The full configuration exposes all available options including compaction, aggregation windows, anomaly detection, and alerting. See the [Configuration](/docs/panopticon/configuration) reference for detailed documentation of each setting.
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step>
+    ### Start Panopticon with Docker Compose
+
+    Launch the standalone container using Docker Compose. The compose file maps the configuration file into the container and exposes the two API ports.
+
+    ```bash
+    docker compose up -d panopticon
+    ```
+
+    If you do not have a `docker-compose.yml` entry for Panopticon yet, add this to your existing compose file:
+
+    ```yaml title="docker-compose.yml"
+    services:
+      panopticon:
+        image: kijko/panopticon:latest
+        ports:
+          - "9090:9090"
+          - "9091:9091"
+        volumes:
+          - ./config/panopticon.yaml:/etc/panopticon/config.yaml
+          - panopticon-data:/var/lib/panopticon
+        environment:
+          - PANOPTICON_MODE=standalone
+        restart: unless-stopped
+
+    volumes:
+      panopticon-data:
+    ```
+
+    After starting, check the container logs to confirm a clean startup:
+
+    ```bash
+    docker compose logs panopticon --tail 20
+    ```
+
+    You should see output indicating that the ingestion and query servers are listening:
+
+    ```text
+    panopticon  | level=info msg="ingestion server listening" port=9091
+    panopticon  | level=info msg="query server listening" port=9090
+    panopticon  | level=info msg="scrape controller started" targets=1
+    ```
+  </Step>
+
+  <Step>
+    ### Push your first metric
+
+    Use curl to send a test metric to the ingestion API. This verifies that the ingestion endpoint is accepting data and the write path is functioning.
+
+    <Tabs items={["curl", "httpie", "Node.js"]}>
+      <Tab value="curl">
+        ```bash
+        curl -X POST http://localhost:9091/api/v1/ingest \
+          -H "Content-Type: application/json" \
+          -d '{
+            "samples": [
+              {
+                "metric": "test_counter_total",
+                "labels": { "env": "local", "service": "quickstart" },
+                "timestamp": '"$(date +%s000)"',
+                "value": 42
+              }
+            ],
+            "source": "quickstart-guide"
+          }'
+        ```
+      </Tab>
+      <Tab value="httpie">
+        ```bash
+        http POST http://localhost:9091/api/v1/ingest \
+          samples:='[{"metric":"test_counter_total","labels":{"env":"local","service":"quickstart"},"timestamp":'$(date +%s000)',"value":42}]' \
+          source=quickstart-guide
+        ```
+      </Tab>
+      <Tab value="Node.js">
+        ```typescript title="push-metric.ts"
+        const payload = {
+          samples: [{
+            metric: "test_counter_total",
+            labels: { env: "local", service: "quickstart" },
+            timestamp: Date.now(),
+            value: 42,
+          }],
+          source: "quickstart-guide",
+        };
+
+        const response = await fetch("http://localhost:9091/api/v1/ingest", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        console.log(`Status: ${response.status}`);
+        ```
+      </Tab>
+    </Tabs>
+
+    A successful push returns HTTP 200 with a JSON body confirming the number of samples accepted:
+
+    ```json
+    { "accepted": 1, "rejected": 0 }
+    ```
+  </Step>
+
+  <Step>
+    ### Query the data
+
+    Verify that the metric was stored and is queryable through the query API:
+
+    ```bash
+    curl -s "http://localhost:9090/api/v1/query?q=test_counter_total&from=$(date -d '5 minutes ago' +%s000)&to=$(date +%s000)" | jq .
+    ```
+
+    The response should contain the sample you just pushed:
+
+    ```json
+    {
+      "status": "ok",
+      "data": {
+        "series": [
+          {
+            "metric": "test_counter_total",
+            "labels": { "env": "local", "service": "quickstart" },
+            "samples": [
+              { "timestamp": 1711700000000, "value": 42 }
+            ]
+          }
+        ]
+      }
+    }
+    ```
+
+    If you wait a few seconds and query again, you should also see the self-monitoring metrics from the scrape target you configured in step 2. The scrape controller writes metrics prefixed with `panopticon_` by default.
+  </Step>
+</Steps>
+
+## Verification Checklist
+
+After completing the steps above, verify your setup by confirming each of these:
+
+- The Panopticon container is running: `docker compose ps` shows it as "Up"
+- The ingestion endpoint responds: `curl -s http://localhost:9091/health` returns `\{"status":"ok"\}`
+- The query endpoint responds: `curl -s http://localhost:9090/health` returns `\{"status":"ok"\}`
+- Your test metric is queryable: the query in step 5 returns at least one data point
+- Self-monitoring is working: querying `panopticon_scrape_duration_seconds` returns data
+
+<Callout type="warn">
+If the container fails to start, check that ports 9090 and 9091 are not already in use by another service. Prometheus commonly binds to 9090, so you may need to change the Panopticon query port if you have both running.
+</Callout>
+
+## Common Issues
+
+<Accordions>
+  <Accordion title="Container exits immediately">
+    Check `docker compose logs panopticon` for configuration parsing errors. The most common cause is a YAML indentation mistake in the config file. Run `panopticon config validate --config /path/to/config.yaml` to validate syntax before starting the container.
+  </Accordion>
+  <Accordion title="Ingestion returns 429 Too Many Requests">
+    You have hit the per-source rate limit. The default is 10,000 samples per second per source. For local testing this is generous, but bulk imports may exceed it. Increase `server.rate_limit.ingest` in the config or use the batch endpoint `POST /api/v1/ingest/batch` with NDJSON format for efficient bulk imports.
+  </Accordion>
+  <Accordion title="Query returns empty results">
+    If you are querying within seconds of ingestion, the data may not have been flushed from the write buffer to storage yet. The default flush interval is 5 seconds. Wait a moment and retry. Also verify your `from` and `to` timestamps cover the time window when the metric was pushed.
+  </Accordion>
+  <Accordion title="Scrape target shows errors">
+    Verify the target URL is reachable from inside the container. If Panopticon runs in Docker and the target runs on the host, use `host.docker.internal` instead of `localhost` on macOS/Windows. On Linux, use `--network=host` or the container's gateway IP.
+  </Accordion>
+</Accordions>
+
+## Next Steps
+
+<Cards>
+  <Card title="Architecture" href="/docs/panopticon/architecture">
+    Understand the five subsystems powering this setup.
+  </Card>
+  <Card title="API Reference" href="/docs/panopticon/api-reference">
+    Explore all available endpoints and payload formats.
+  </Card>
+  <Card title="Configuration" href="/docs/panopticon/configuration">
+    Customize retention, alerting, and scrape targets for your environment.
+  </Card>
+</Cards>

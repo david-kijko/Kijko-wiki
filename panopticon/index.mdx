@@ -1,0 +1,115 @@
+---
+title: Panopticon
+description: "Central monitoring and observability platform for the Kijko workspace with unified telemetry, alerting, and query federation"
+icon: Eye
+---
+
+Panopticon is the unified monitoring and observability layer that sits across the entire Kijko infrastructure. It collects telemetry from every service in the workspace, aggregates metrics, correlates logs with traces, and exposes a single pane of glass for operators who need to understand what the system is doing at any given moment. The name comes from the architectural concept of a structure where every part can be observed from a single vantage point -- and that maps directly to what this system does: complete visibility without jumping between a dozen different dashboards.
+
+In the Kijko workspace, Panopticon is not just a monitoring add-on. It is a first-class citizen in the repository's seed data, test suites, and agent help text. The label `panopticon` appears in `server/routes.ts` as a seeded repository, in `tests/wikiagent.test.ts` as an intent classification target, and in `apps/agent/src/lib/chat-engine.ts` as one of the example commands surfaced to users. That three-way presence across data, tests, and user-facing guidance makes it a stable reference point in the workspace vocabulary.
+
+## At a Glance
+
+<Cards>
+  <Card title="Architecture" href="/docs/panopticon/architecture">
+    Service topology, data flow pipelines, and how Panopticon integrates with upstream services across five core subsystems.
+  </Card>
+  <Card title="Quickstart" href="/docs/panopticon/quickstart">
+    Get Panopticon running locally in under five minutes with Docker Compose and a minimal YAML configuration.
+  </Card>
+  <Card title="API Reference" href="/docs/panopticon/api-reference">
+    Complete REST and gRPC endpoint documentation for ingestion, query, and management APIs with code examples.
+  </Card>
+  <Card title="Configuration" href="/docs/panopticon/configuration">
+    Every configuration key documented: server, storage tiers, processing pipelines, alerting, scrape targets, and discovery.
+  </Card>
+</Cards>
+
+## How It Works
+
+Panopticon operates on a pull-and-push hybrid model. Services can push metrics and traces directly using the ingestion API, or Panopticon can scrape Prometheus-compatible endpoints on a configurable interval. The data flows through four stages:
+
+1. **Ingestion** receives raw telemetry via HTTP, gRPC, or the Prometheus scrape loop and normalizes it into the internal time-series format through the Normalizer component.
+2. **Processing** runs three parallel pipelines: an aggregation pipeline that computes windowed summaries, an anomaly detector that maintains statistical baselines using EMA and modified z-scores, and an alert evaluator that triggers on data arrival rather than polling.
+3. **Storage** persists processed data into a columnar time-series store with three retention tiers (hot at 48h full resolution, warm at 30d with 1-minute downsampling, cold at 13 months with 1-hour downsampling) and an inverted label index for fast queries.
+4. **Query** exposes a unified SQL-like query interface with automatic selection between raw and aggregated data, federation proxy for multi-cluster deployments, and REST/gRPC API surfaces.
+
+The key design decision is that ingestion and query are completely decoupled. The write path and the read path operate on separate subsystems with independent resource budgets, so you can ingest data at high throughput without impacting query performance.
+
+## Workspace Integration
+
+<Tabs items={["Seed Data", "Test Coverage", "Agent Surface"]}>
+  <Tab value="Seed Data">
+    The `server/routes.ts` file seeds Panopticon as a monitored repository entry. This seed record ensures that the wiki dashboard always has a Panopticon entry available for demonstration and development. The seed also creates an associated docs page entry that links the repository label to the wiki content surface.
+
+    ```typescript
+    // server/routes.ts -- seed excerpt
+    \{ name: "Panopticon", slug: "panopticon", audience: "both" \}
+    ```
+
+    The seeded repository entry feeds into the architecture diagram builder in `server/architecture.ts`, which uses `buildRepoSignature()` and `loadGitHubContext()` to construct a live dependency graph. Panopticon appears as a node in this graph with relationship edges scored by `scoreRelationshipReference()`.
+  </Tab>
+  <Tab value="Test Coverage">
+    The test suite at `tests/wikiagent.test.ts` uses Panopticon in intent classification assertions. When the agent receives a query mentioning "panopticon", it should classify the intent as a documentation lookup and route the request to the wiki surface. The `apps/agent/src/lib/intent.ts` module handles this classification.
+  </Tab>
+  <Tab value="Agent Surface">
+    The chat engine help text in `apps/agent/src/lib/chat-engine.ts` includes Panopticon as an example command suggestion. When a user opens the chat surface at `/chat` and asks "what can you do?", the agent lists Panopticon-related queries as one of the available actions. This closes the loop between seed data, docs content, and the interactive surface.
+
+    The wiki API client in `apps/web/lib/wiki-api-client.ts` fetches page summaries for Panopticon through `fetchPages()`, providing the dashboard at `/wiki` with title, audience, word count, and update timestamps for each sub-page.
+  </Tab>
+</Tabs>
+
+## Pipeline Integration
+
+When the 7-agent documentation pipeline runs against Panopticon, the Audit Agent at `apps/agent/src/lib/pipeline/agents/audit-agent.ts` scans for exported symbols and compares them against existing wiki pages. The pipeline's `PipelineOrchestrator` passes Panopticon's repository path through the full agent chain:
+
+- **Audit** identifies documentation gaps by scanning code symbols
+- **IA** generates the page taxonomy (index, architecture, quickstart, api-reference, configuration)
+- **Writer** produces MDX content grounded in code references
+- **Verifier** validates that file paths and function names in the docs match the actual codebase
+- **QA** runs snippet verification in Docker sandboxes using the runtime registry in `docs-pipeline.ts`
+- **Monitor** tracks page freshness against code changes
+- **Publish** writes validated MDX to `wiki-content/docs/panopticon/`
+
+## Why Panopticon Matters
+
+In any infrastructure that grows beyond a handful of services, observability stops being optional and becomes the foundation that every other operational practice depends on. Incident response, capacity planning, deployment validation, and SLO tracking all require reliable telemetry. Panopticon centralizes that telemetry so you do not end up with fragmented monitoring where each team uses a different tool and nobody has the full picture.
+
+- **Unified data model**: Metrics, logs, and traces share a common labeling scheme, so you can correlate a spike in error rate with the specific trace that caused it and the log entries that describe it.
+- **Low-latency alerting**: Alert rules evaluate on the ingestion path, not on a polling loop, which means you get notified within seconds of a threshold breach.
+- **Retention flexibility**: Different metric types can have different retention windows. High-cardinality debug metrics might retain for 24 hours, while aggregate SLO data retains for 13 months.
+- **Query federation**: Dashboards can query across multiple Panopticon instances in a federated setup without requiring a centralized aggregation layer.
+
+<Callout type="info">
+If you are evaluating whether to add a new metric or trace, check the [Configuration guide](/docs/panopticon/configuration) first. There may already be an auto-instrumentation option that captures what you need without manual code changes.
+</Callout>
+
+## Evidence Trail
+
+The following files in the repository reference the Panopticon label:
+
+| File | Reference |
+|---|---|
+| `server/routes.ts` | Seed data: repository entry + docs page entry |
+| `server/architecture.ts` | Architecture diagram node generation |
+| `tests/wikiagent.test.ts` | Intent classification test assertions |
+| `apps/agent/src/lib/chat-engine.ts` | Agent help text example commands |
+| `apps/agent/src/lib/intent.ts` | Intent classification routing |
+| `apps/web/lib/wiki-api-client.ts` | Dashboard page listing |
+| `wiki-content/docs/panopticon/` | Committed documentation pages |
+
+When modifying any of these surfaces, check the others for consistency. A rename in seed data should propagate to the test assertions and the agent help text.
+
+## Next Steps
+
+<Cards>
+  <Card title="Architecture Deep Dive" href="/docs/panopticon/architecture">
+    Understand the five-subsystem topology and data flow from ingestion through query.
+  </Card>
+  <Card title="Get Started" href="/docs/panopticon/quickstart">
+    Run Panopticon locally in under five minutes with Docker Compose.
+  </Card>
+  <Card title="Panopticon 2.0" href="/docs/panopticon-2-0">
+    See the durable orchestration evolution with pipeline state persistence and resumable execution.
+  </Card>
+</Cards>

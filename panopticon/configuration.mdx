@@ -1,0 +1,444 @@
+---
+title: Configuration
+description: Complete reference for all Panopticon configuration options including server, storage, processing, alerting, and scrape settings
+icon: Settings
+page_type: reference_spec
+audience: both
+tags:
+  - panopticon
+  - configuration
+  - reference
+  - yaml
+---
+Panopticon reads its configuration from a single YAML file at startup. Every runtime behavior, from port assignments to retention policies to alerting thresholds, is controlled through this file. This reference documents every configuration key, its type, its default value, and the operational implications of changing it. When in doubt about a setting, the default value is always the conservative choice that prioritizes correctness over performance.
+
+## Configuration File Location
+
+By default, Panopticon looks for its configuration file at `/etc/panopticon/config.yaml`. You can override this path using the `--config` flag or the `PANOPTICON_CONFIG` environment variable.
+
+```bash
+# Using the CLI flag
+panopticon --config /path/to/my-config.yaml
+
+# Using the environment variable
+PANOPTICON_CONFIG=/path/to/my-config.yaml panopticon
+```
+
+In Docker deployments, the configuration file is typically mounted as a volume:
+
+```yaml
+volumes:
+  - ./config/panopticon.yaml:/etc/panopticon/config.yaml
+```
+
+<Callout type="info">
+Configuration changes require a restart by default. To enable hot reloading without restart, set `server.hot_reload: true` and use the management API endpoint `PUT /api/v1/admin/config/reload`. Not all settings support hot reload; the ones that do are marked below.
+</Callout>
+
+## Server Configuration
+
+The `server` section controls the network interfaces, connection handling, and operational mode.
+
+```yaml
+server:
+  ingestion_port: 9091      # Port for the ingestion API
+  query_port: 9090           # Port for the query and management APIs
+  mode: standalone           # Deployment mode: standalone | distributed
+  host: 0.0.0.0             # Bind address
+  max_connections: 1000      # Maximum concurrent connections per port
+  read_timeout: 30s          # Maximum time to read a request
+  write_timeout: 10s         # Maximum time to write a response
+  idle_timeout: 120s         # Close idle connections after this duration
+  hot_reload: false          # Enable hot configuration reload via API
+
+  auth:
+    enabled: false           # Enable bearer token authentication
+    token_file: ""           # Path to file containing valid tokens (one per line)
+
+  tls:
+    enabled: false           # Enable TLS for all endpoints
+    cert_file: ""            # Path to TLS certificate
+    key_file: ""             # Path to TLS private key
+
+  rate_limit:
+    ingest: 10000            # Max samples per second per source
+    query: 100               # Max queries per second (global)
+    admin: 10                # Max admin requests per second (global)
+```
+
+### Server Options Detail
+
+| Key | Type | Default | Hot Reload | Description |
+|-----|------|---------|-----------|-------------|
+| `ingestion_port` | integer | `9091` | No | TCP port for the ingestion API. Must not conflict with `query_port`. |
+| `query_port` | integer | `9090` | No | TCP port for the query and management APIs. |
+| `mode` | string | `standalone` | No | `standalone` runs all subsystems in one process. `distributed` expects each subsystem to run as a separate service. |
+| `host` | string | `0.0.0.0` | No | Network interface to bind. Use `127.0.0.1` to restrict to localhost. |
+| `max_connections` | integer | `1000` | Yes | Connection limit per port. Excess connections receive HTTP 503. |
+| `read_timeout` | duration | `30s` | Yes | Timeout for reading the full request. Protects against slow clients. |
+| `write_timeout` | duration | `10s` | Yes | Timeout for writing the response. Should be shorter than read timeout. |
+| `idle_timeout` | duration | `120s` | Yes | Idle connection cleanup threshold. |
+| `hot_reload` | boolean | `false` | No | When true, the management API can trigger configuration reloads. |
+| `auth.enabled` | boolean | `false` | Yes | Require bearer token on all requests. |
+| `auth.token_file` | string | `""` | Yes | Path to newline-delimited file of valid tokens. Reloaded on SIGHUP. |
+| `tls.enabled` | boolean | `false` | No | Terminate TLS at the Panopticon server. |
+| `rate_limit.ingest` | integer | `10000` | Yes | Per-source samples/second limit for ingestion. |
+| `rate_limit.query` | integer | `100` | Yes | Global queries/second limit. |
+| `rate_limit.admin` | integer | `10` | Yes | Global admin requests/second limit. |
+
+## Storage Configuration
+
+The `storage` section controls where and how Panopticon persists time-series data.
+
+```yaml
+storage:
+  data_dir: /var/lib/panopticon    # Root directory for all stored data
+  wal_dir: ""                       # Write-ahead log directory (defaults to data_dir/wal)
+
+  retention:
+    hot: 48h                        # Hot tier retention (full resolution)
+    warm: 720h                      # Warm tier retention (downsampled to 1m)
+    cold: 8760h                     # Cold tier retention (downsampled to 1h)
+
+  block_size: 2h                    # Time range per storage block
+  max_block_bytes: 512MB            # Maximum block size before forced rotation
+
+  compaction:
+    enabled: true                   # Enable background compaction
+    interval: 1h                    # How often to run the compaction pass
+    max_concurrent: 2               # Maximum concurrent compaction jobs
+
+  wal:
+    segment_size: 128MB             # WAL segment size before rotation
+    sync_on_write: false            # fsync each write (slow but durable)
+    checkpoint_interval: 5m         # WAL checkpoint frequency
+```
+
+### Retention Tiers
+
+Panopticon uses a three-tier retention model. Data automatically moves from hot to warm to cold as it ages, with increasing levels of downsampling to reduce storage requirements.
+
+<Tabs items={["Hot Tier", "Warm Tier", "Cold Tier"]}>
+  <Tab value="Hot Tier">
+    The hot tier stores data at full resolution with no downsampling. This is where real-time dashboards
+    and recent alert evaluations read from. The default retention of 48 hours means you have two full
+    days of granular data available for debugging.
+
+    **Storage cost**: Approximately 1.5 bytes per sample (compressed).
+    **Query speed**: Sub-millisecond for single-series queries.
+    **Recommended retention**: 24 to 168 hours depending on your debugging needs.
+  </Tab>
+  <Tab value="Warm Tier">
+    The warm tier stores data downsampled to 1-minute resolution. This is suitable for trend analysis,
+    capacity planning dashboards, and medium-term reporting. Data is automatically downsampled from the
+    hot tier when it ages past the hot retention window.
+
+    **Storage cost**: Approximately 0.1 bytes per original sample (after downsampling).
+    **Query speed**: Low single-digit milliseconds for typical dashboard queries.
+    **Recommended retention**: 30 to 90 days for most workloads.
+  </Tab>
+  <Tab value="Cold Tier">
+    The cold tier stores data downsampled to 1-hour resolution. This is designed for long-term SLO
+    tracking, annual capacity reports, and compliance-driven data retention. The cold tier can
+    optionally use a different storage backend (e.g., object storage) for cost efficiency.
+
+    **Storage cost**: Approximately 0.01 bytes per original sample.
+    **Query speed**: Low tens of milliseconds, acceptable for batch reporting.
+    **Recommended retention**: 12 to 24 months for SLO tracking.
+  </Tab>
+</Tabs>
+
+<Callout type="warn">
+Changing retention windows only affects future data. Existing data is not retroactively deleted or downsampled. To reclaim storage from historical data, use the `panopticon admin compact --force` command.
+</Callout>
+
+## Processing Configuration
+
+The `processing` section controls the aggregation pipeline, anomaly detection, and alerting engine.
+
+```yaml
+processing:
+  aggregation:
+    enabled: true                    # Enable pre-aggregation
+    windows: [1m, 5m, 1h]           # Aggregation window sizes
+    functions: [avg, sum, count, min, max, p50, p95, p99]
+
+  anomaly_detection:
+    enabled: true                    # Enable statistical anomaly detection
+    baseline_period: 24h             # Minimum data required before detection activates
+    z_score_threshold: 3.5           # Modified z-score threshold for flagging anomalies
+    sensitivity: medium              # Preset: low (z=4.0), medium (z=3.5), high (z=3.0)
+
+  alerting:
+    enabled: true                    # Enable the alert evaluation engine
+    evaluation_interval: 10s         # How often to re-evaluate alert rules
+    max_firing_alerts: 1000          # Maximum concurrent firing alerts
+    notification_timeout: 30s        # Timeout for notification delivery
+
+    notification_channels:
+      - name: ops-webhook
+        type: webhook
+        url: https://hooks.slack.com/services/xxx
+
+      - name: ops-email
+        type: email
+        smtp_host: smtp.example.com
+        smtp_port: 587
+        from: panopticon@example.com
+        to: [ops@example.com]
+```
+
+### Aggregation Windows
+
+The aggregation windows determine which pre-computed rollups are available for queries. Adding more windows improves query performance for those specific resolutions but increases storage and processing overhead.
+
+| Window | Typical Use Case | Storage Overhead |
+|--------|-----------------|-----------------|
+| `1m` | Real-time dashboards, alert rules | ~6x raw metrics (per function) |
+| `5m` | Standard monitoring dashboards | ~1.2x |
+| `1h` | Trend analysis, capacity planning | ~0.02x |
+| `1d` | Monthly reporting, SLO calculations | ~0.001x |
+
+### Alert Rule Configuration
+
+Alert rules can be defined in the configuration file or created dynamically via the management API. File-based rules are loaded at startup and cannot be deleted via the API (only updated).
+
+```yaml
+alerts:
+  rules:
+    - name: high_error_rate
+      metric: http_requests_total
+      labels:
+        status: "500"
+      condition: "rate(5m) > 10"
+      duration: 2m
+      severity: critical
+      annotations:
+        summary: "Error rate exceeds 10 req/s for 2 minutes"
+        runbook: "https://wiki.example.com/runbooks/high-error-rate"
+      notify: [ops-webhook, ops-email]
+
+    - name: disk_usage_warning
+      metric: node_filesystem_avail_bytes
+      condition: "value < 5368709120"  # 5 GB
+      duration: 5m
+      severity: warning
+      notify: [ops-webhook]
+```
+
+## Scrape Configuration
+
+The `scrape` section configures the Prometheus-compatible scrape controller.
+
+```yaml
+scrape:
+  global:
+    scrape_interval: 15s             # Default interval between scrapes
+    scrape_timeout: 10s              # Per-scrape timeout
+
+  targets:
+    - url: http://localhost:9090/metrics
+      interval: 15s                  # Override global interval
+      timeout: 5s                    # Override global timeout
+      labels:
+        service: panopticon
+        environment: local
+      honor_labels: false            # If true, don't override labels from the target
+
+    - url: http://api-gateway:8080/metrics
+      interval: 30s
+      labels:
+        service: api-gateway
+        environment: local
+      basic_auth:
+        username: scraper
+        password_file: /etc/panopticon/scrape-password
+```
+
+### Target Discovery
+
+In addition to static targets, Panopticon supports dynamic target discovery for container orchestrators:
+
+```yaml
+scrape:
+  discovery:
+    docker:
+      enabled: true
+      host: unix:///var/run/docker.sock
+      label_filter: "panopticon.scrape=true"
+      port_label: "panopticon.port"
+      interval_label: "panopticon.interval"
+
+    kubernetes:
+      enabled: false
+      namespace: ""                  # Empty = all namespaces
+      annotation_prefix: "panopticon.io"
+```
+
+## Logging Configuration
+
+```yaml
+logging:
+  level: info                        # trace, debug, info, warn, error
+  format: json                       # json or text
+  output: stderr                     # stderr, stdout, or file path
+  file:
+    max_size: 100MB                  # Maximum log file size before rotation
+    max_files: 5                     # Number of rotated files to keep
+    compress: true                   # Compress rotated files
+```
+
+## Environment Variable Overrides
+
+Any configuration key can be overridden using an environment variable. The mapping uses uppercase letters with underscores replacing dots and nested keys:
+
+```bash
+# server.ingestion_port -> PANOPTICON_SERVER_INGESTION_PORT
+PANOPTICON_SERVER_INGESTION_PORT=9091
+
+# storage.retention.hot -> PANOPTICON_STORAGE_RETENTION_HOT
+PANOPTICON_STORAGE_RETENTION_HOT=72h
+
+# processing.alerting.enabled -> PANOPTICON_PROCESSING_ALERTING_ENABLED
+PANOPTICON_PROCESSING_ALERTING_ENABLED=true
+```
+
+Environment variables take precedence over the configuration file. This is useful for container deployments where you want a base configuration file with per-environment overrides.
+
+## Complete Example
+
+<Tabs items={["Development", "Production"]}>
+  <Tab value="Development">
+    ```yaml title="config/panopticon-dev.yaml"
+    server:
+      ingestion_port: 9091
+      query_port: 9090
+      mode: standalone
+      hot_reload: true
+      rate_limit:
+        ingest: 50000
+        query: 500
+
+    storage:
+      data_dir: /tmp/panopticon-dev
+      retention:
+        hot: 24h
+        warm: 168h
+        cold: 720h
+      compaction:
+        enabled: false
+
+    processing:
+      aggregation:
+        enabled: true
+        windows: [1m, 5m]
+      anomaly_detection:
+        enabled: false
+      alerting:
+        enabled: false
+
+    scrape:
+      targets:
+        - url: http://localhost:9090/metrics
+          interval: 15s
+
+    logging:
+      level: debug
+      format: text
+    ```
+  </Tab>
+  <Tab value="Production">
+    ```yaml title="config/panopticon-prod.yaml"
+    server:
+      ingestion_port: 9091
+      query_port: 9090
+      mode: standalone
+      max_connections: 5000
+      auth:
+        enabled: true
+        token_file: /etc/panopticon/tokens
+      tls:
+        enabled: true
+        cert_file: /etc/panopticon/tls/cert.pem
+        key_file: /etc/panopticon/tls/key.pem
+      rate_limit:
+        ingest: 100000
+        query: 1000
+        admin: 50
+
+    storage:
+      data_dir: /var/lib/panopticon
+      retention:
+        hot: 48h
+        warm: 720h
+        cold: 8760h
+      block_size: 2h
+      compaction:
+        enabled: true
+        interval: 1h
+        max_concurrent: 4
+      wal:
+        sync_on_write: true
+        checkpoint_interval: 2m
+
+    processing:
+      aggregation:
+        enabled: true
+        windows: [1m, 5m, 1h, 1d]
+      anomaly_detection:
+        enabled: true
+        baseline_period: 48h
+        z_score_threshold: 3.5
+      alerting:
+        enabled: true
+        evaluation_interval: 10s
+        notification_channels:
+          - name: pagerduty
+            type: webhook
+            url: https://events.pagerduty.com/integration/xxx
+          - name: slack-ops
+            type: webhook
+            url: https://hooks.slack.com/services/xxx
+
+    scrape:
+      global:
+        scrape_interval: 30s
+      discovery:
+        kubernetes:
+          enabled: true
+          annotation_prefix: panopticon.io
+
+    logging:
+      level: info
+      format: json
+      file:
+        max_size: 100MB
+        max_files: 10
+        compress: true
+    ```
+  </Tab>
+</Tabs>
+
+## Validation
+
+Panopticon validates the configuration file at startup and reports all errors before exiting. You can also validate a configuration file without starting the server:
+
+```bash
+panopticon config validate --config /path/to/config.yaml
+```
+
+This is useful in CI pipelines to catch configuration errors before deployment.
+
+## Next Steps
+
+<Cards>
+  <Card title="Quickstart" href="/docs/panopticon/quickstart">
+    Apply these configuration options in a working local setup.
+  </Card>
+  <Card title="API Reference" href="/docs/panopticon/api-reference">
+    Use the management API to inspect and update configuration at runtime.
+  </Card>
+  <Card title="Architecture" href="/docs/panopticon/architecture">
+    Understand how each configuration section maps to the internal subsystems.
+  </Card>
+</Cards>

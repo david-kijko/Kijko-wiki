@@ -1,0 +1,239 @@
+---
+title: Getting Started
+description: "Set up the Kijko workspace locally, run the docs surface, and verify your changes with the standard check loop"
+icon: Rocket
+---
+
+Get from a fresh checkout to a running docs surface, a connected agent, and a passing verification suite in under ten minutes. This guide covers the three browser routes, the CLI commands that drive the documentation pipeline, and the editing loop that keeps your changes aligned with the repository's actual code.
+
+## Prerequisites
+
+<Callout type="info" title="Before you begin">
+  - **Node.js 20+** and **pnpm** (the workspace uses pnpm workspaces)
+  - **Docker** and **Docker Compose v2** for container-based deployments
+  - **Git** with access to the Kijko repository
+  - A copy of `.env.example` renamed to `.env` with your local values filled in
+</Callout>
+
+## Setup
+
+<Steps>
+  <Step>
+    ### Clone and install dependencies
+
+    Clone the repository and install all workspace packages. The monorepo uses pnpm workspaces to manage `apps/agent`, `apps/web`, and `packages/shared` as linked packages.
+
+    ```bash
+    git clone https://github.com/kijko-ai/Kijko_Docs.git
+    cd Kijko_Docs
+    cp .env.example .env
+    pnpm install
+    ```
+
+    The `.env` file configures the agent port (`WIKI_AGENT_PORT=4111`), the LLM proxy endpoint (`OPENAI_BASE_URL`), the wiki content root, and the database path. For local development the defaults work without modification.
+  </Step>
+
+  <Step>
+    ### Start the web surface
+
+    The Next.js frontend serves three distinct routes, each with a different purpose.
+
+    ```bash
+    pnpm --filter @kijko/wikiagent-web dev
+    ```
+
+    Once running, open these routes:
+
+    - **`http://localhost:3000`** -- the docs landing surface, rendering committed MDX from `wiki-content/docs/`
+    - **`http://localhost:3000/docs`** -- the Fumadocs reader with sidebar navigation, search, and table of contents
+    - **`http://localhost:3000/chat`** -- the CopilotKit control surface for agent interaction
+    - **`http://localhost:3000/wiki`** -- the wiki dashboard showing monitored repositories and page listings
+  </Step>
+
+  <Step>
+    ### Start the agent
+
+    The agent provides the API backend for chat, wiki operations, and the documentation pipeline.
+
+    ```bash
+    pnpm --filter @kijko/wikiagent-agent dev
+    ```
+
+    The agent starts a Hono HTTP server on port 4111 with WebSocket support for real-time chat. It connects to the LLM proxy at `OPENAI_BASE_URL` (default: `http://127.0.0.1:4141/v1`) through the GPTAuthwrapper and LiteLLM proxy stack.
+
+    Key environment variables from `apps/agent/src/env.ts`:
+
+    ```typescript
+    // Default configuration
+    host: "0.0.0.0",
+    port: 4111,
+    model: "gpt-5.4",
+    openAiBaseUrl: "http://127.0.0.1:4141/v1",
+    repoRoot: resolve(process.cwd(), "../.."),
+    wikiContentRoot: resolve(process.cwd(), "../../wiki-content"),
+    databasePath: resolve(process.cwd(), "data/wikiagent.db"),
+    ```
+  </Step>
+
+  <Step>
+    ### Run verification checks
+
+    Before submitting any changes, run the standard verification suite. These are the same checks that CI runs on every push.
+
+    ```bash
+    # Typecheck the web app
+    pnpm --filter @kijko/wikiagent-web check
+
+    # Typecheck the agent
+    pnpm --filter @kijko/wikiagent-agent check
+
+    # Typecheck shared packages
+    pnpm --filter @kijko/shared check
+
+    # Run agent tests
+    pnpm --filter @kijko/wikiagent-agent test
+
+    # Run docs tests
+    node --import tsx --test tests/docs.test.ts
+
+    # Build the web app (validates SSR and MDX compilation)
+    pnpm --filter @kijko/wikiagent-web build
+    ```
+  </Step>
+</Steps>
+
+## Agent CLI Commands
+
+The agent includes a CLI at `apps/agent/src/cli.ts` that drives the documentation pipeline without needing the web interface. Each command loads the wiki agent configuration from `config/wikiagent.yaml` and operates on the committed docs corpus.
+
+<Tabs items={["rebuild", "audit", "search", "discover", "monitor", "trigger"]}>
+  <Tab value="rebuild">
+    Runs the full documentation automation pipeline: loads the docs corpus, ingests API surfaces from OpenAPI and AsyncAPI specs, parses SDK symbols, generates platform-agnostic content, and writes output artifacts.
+
+    ```bash
+    pnpm --filter @kijko/wikiagent-agent docs:rebuild
+    ```
+
+    Output includes generated page count, platform outputs, and the artifact base path.
+  </Tab>
+  <Tab value="audit">
+    Runs quality checks on the existing docs corpus: broken links, heading hierarchy, image alt text, snippet verification, readability scoring, style guide compliance, and duplicate content detection.
+
+    ```bash
+    pnpm --filter @kijko/wikiagent-agent docs:audit
+    ```
+  </Tab>
+  <Tab value="search">
+    Searches the committed docs corpus using keyword matching against page titles, descriptions, slugs, and body content.
+
+    ```bash
+    pnpm --filter @kijko/wikiagent-agent docs:search "pipeline orchestrator"
+    ```
+  </Tab>
+  <Tab value="discover">
+    Generates a discovery report comparing docs coverage against the API surface and SDK symbols. Identifies coverage gaps, undocumented symbols, contradictions, and competitive benchmarks.
+
+    ```bash
+    pnpm --filter @kijko/wikiagent-agent docs:discover
+    ```
+  </Tab>
+  <Tab value="monitor">
+    Generates a monitoring report tracking page freshness, structural changes, behavioral changes, and snippet re-verification needs based on changed files.
+
+    ```bash
+    pnpm --filter @kijko/wikiagent-agent docs:monitor
+    ```
+  </Tab>
+  <Tab value="trigger">
+    Triggers the docs automation pipeline for specific changed files, running the same pipeline as `rebuild` but scoped to affected pages.
+
+    ```bash
+    pnpm --filter @kijko/wikiagent-agent docs:trigger apps/agent/src/lib/pipeline/orchestrator.ts
+    ```
+  </Tab>
+</Tabs>
+
+## Editing Loop
+
+<Steps>
+  <Step>
+    Read the page you want to change and at least two related pages to understand cross-link dependencies.
+  </Step>
+  <Step>
+    Edit the MDX file in `wiki-content/docs/`. Use Fumadocs components (Callout, Cards, Tabs, Steps) without import statements -- they are injected automatically via `apps/web/components/mdx/index.tsx`.
+  </Step>
+  <Step>
+    Verify frontmatter includes `title` and `description`. Escape curly braces in prose with backslashes: `\{param\}`.
+  </Step>
+  <Step>
+    Run the checks: `pnpm --filter @kijko/wikiagent-web check` and `pnpm --filter @kijko/wikiagent-web build` to confirm MDX compiles cleanly.
+  </Step>
+  <Step>
+    Check that cross-links point to pages that exist. The Fumadocs catch-all route at `apps/web/app/docs/[[...slug]]/page.tsx` resolves slugs through `apps/web/lib/docs.ts`.
+  </Step>
+</Steps>
+
+## Project Structure
+
+```text
+Kijko_Docs/
+  apps/
+    agent/                   # Wiki automation backend (Hono :4111)
+      src/
+        cli.ts               # CLI entry point
+        lib/
+          chat-engine.ts     # CopilotKit chat backend
+          docs-pipeline.ts   # Corpus loading, quality checks
+          pipeline/
+            orchestrator.ts  # 7-agent pipeline coordinator
+            agents/          # audit, ia, writer, verifier, qa, monitor, publish
+            mcp-clients/     # codegraph, cgc, notebooklm clients
+    web/                     # Next.js frontend (Fumadocs)
+      app/
+        docs/[[...slug]]/    # MDX catch-all route
+        chat/                # CopilotKit surface
+        wiki/                # Dashboard surface
+      components/
+        mdx/index.tsx        # Component registry
+        docs/                # Sidebar, markdown page
+        wiki/                # Dashboard components
+      lib/
+        docs.ts              # Page resolution and catalog
+        wiki-api-client.ts   # Agent API client
+  packages/shared/           # Shared types and utilities
+  wiki-content/
+    docs/                    # Committed MDX files (this documentation)
+    style-system.json        # IA variants, personas, design tokens
+  config/
+    wikiagent.yaml           # Agent configuration
+  conductor/                 # Superconductor orchestration artifacts
+  server/                    # Legacy Express server (routes, auth, storage)
+  client/                    # Legacy Vite frontend (migration boundary)
+```
+
+## CI Pipeline
+
+The GitHub Actions CI workflow at `.github/workflows/ci.yml` runs on every push and PR to main:
+
+1. **Typecheck** (`npm run check`) -- validates all TypeScript surfaces
+2. **Tests** (`npm test`) -- runs the test suite
+3. **Conductor parity gate** (`scripts/ci/run-conductor-parity.sh`) -- validates conductor track compliance
+4. **Build** (`npm run build`) -- full production build
+5. **Compose validation** -- verifies Docker Compose configuration
+6. **Image build** -- builds the WikiApp Docker image
+
+The Living Docs workflow at `.github/workflows/living-docs.yml` runs on code changes and nightly, executing the full docs automation pipeline to keep documentation synchronized with the codebase.
+
+## Next Steps
+
+<Cards>
+  <Card title="Kijko Frontend" href="/docs/kijko-frontend">
+    Understand the Next.js surface, Fumadocs integration, and component architecture.
+  </Card>
+  <Card title="Panopticon" href="/docs/panopticon">
+    Explore the monitoring platform with its multi-page wiki structure.
+  </Card>
+  <Card title="Baton Exchange" href="/docs/baton-exchange">
+    Learn about the context relay protocol for agent handoffs.
+  </Card>
+</Cards>

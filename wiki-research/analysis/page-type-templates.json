@@ -1,0 +1,488 @@
+{
+  "$schema": "kijko-wiki-template-system/v1",
+  "description": "Wiki page type template system reverse-engineered from SuperMemory docs (supermemory.ai/docs). Maps Mintlify patterns to Fumadocs equivalents for Kijko WikiAgent generation.",
+  "source_analysis": {
+    "site": "https://supermemory.ai/docs",
+    "framework": "Mintlify",
+    "target_framework": "Fumadocs + Next.js App Router",
+    "total_pages": 136,
+    "sections": 13,
+    "page_types": 10,
+    "crawl_date": "2026-03-28"
+  },
+  "design_tokens": {
+    "layout": {
+      "content_max_width": "780px",
+      "sidebar_width": "280px",
+      "toc_width": "220px",
+      "container_padding": "2rem",
+      "section_gap": "2.5rem",
+      "card_grid_gap": "1rem"
+    },
+    "typography": {
+      "font_body": "Inter, system-ui, sans-serif",
+      "font_code": "JetBrains Mono, Fira Code, monospace",
+      "font_heading": "Inter, system-ui, sans-serif",
+      "h1": { "size": "2rem", "weight": 700, "line_height": 1.2 },
+      "h2": { "size": "1.5rem", "weight": 600, "line_height": 1.3, "margin_top": "2rem" },
+      "h3": { "size": "1.25rem", "weight": 500, "line_height": 1.4 },
+      "body": { "size": "1rem", "weight": 400, "line_height": 1.7 },
+      "code": { "size": "0.875rem", "line_height": 1.6 },
+      "caption": { "size": "0.875rem", "weight": 400, "color": "muted" }
+    },
+    "colors": {
+      "light": {
+        "background": "#ffffff",
+        "foreground": "#1a1a2e",
+        "muted": "#6b7280",
+        "border": "#e5e7eb",
+        "accent": "#2563eb",
+        "accent_hover": "#1d4ed8",
+        "brand_accent": "#7c3aed",
+        "link_color": "#2563eb",
+        "code_bg": "#f5f5f5",
+        "callout_info_bg": "#eff6ff",
+        "callout_info_border": "#3b82f6",
+        "callout_warning_bg": "#fffbeb",
+        "callout_warning_border": "#f59e0b",
+        "callout_tip_bg": "#ecfdf5",
+        "callout_tip_border": "#10b981",
+        "callout_note_bg": "#f3f4f6",
+        "callout_note_border": "#9ca3af",
+        "card_bg": "#ffffff",
+        "card_border": "#e5e7eb",
+        "card_hover_shadow": "0 4px 12px rgba(0,0,0,0.08)"
+      },
+      "dark": {
+        "background": "#0f1117",
+        "foreground": "#e0e0e0",
+        "muted": "#9ca3af",
+        "border": "#2d2d3d",
+        "accent": "#60a5fa",
+        "brand_accent": "#a78bfa",
+        "link_color": "#60a5fa",
+        "code_bg": "#1e1e2e",
+        "card_bg": "#1a1a2e",
+        "card_border": "#2d2d3d"
+      }
+    },
+    "header": {
+      "height": "60px",
+      "background": "#ffffff",
+      "background_dark": "#0f1117",
+      "border_bottom": "1px solid #e5e7eb",
+      "position": "sticky",
+      "z_index": 50,
+      "elements": {
+        "logo": { "size": "28px", "variants": ["light", "dark"] },
+        "search_bar": { "width": "240px", "border_radius": "9999px", "placeholder": "Search...", "shortcut": "Cmd+K" },
+        "ask_ai_button": { "icon": "sparkle", "label": "Ask AI", "position": "adjacent-to-search" },
+        "support_link": { "label": "Support", "position": "right" },
+        "cta_button": { "label": "Dashboard", "bg": "#111827", "text": "#ffffff", "border_radius": "0.5rem", "chevron": true },
+        "settings_gear": { "icon": "cog", "size": "20px", "position": "far-right" }
+      }
+    },
+    "section_tab_bar": {
+      "height": "44px",
+      "position": "sticky-below-header",
+      "border_bottom": "1px solid #e5e7eb",
+      "item_font_size": "0.875rem",
+      "item_font_weight": 400,
+      "item_font_weight_active": 500,
+      "icon_size": "16px",
+      "active_indicator": "2px solid #111827",
+      "gap": "1.5rem",
+      "tabs": ["Developer Platform", "API Integrations", "Plugins", "API Reference", "MemoryBench", "Cookbook", "Changelog"]
+    },
+    "footer": {
+      "prev_next_nav": { "full_width": true, "arrow_icons": true, "title_weight": "500-600", "border_top": "1px solid #e5e7eb" },
+      "social_icons": { "icons": ["github", "linkedin", "x-twitter"], "size": "20px", "alignment": "left" },
+      "branding": { "text": "Powered by Fumadocs", "alignment": "right", "font_size": "0.75rem", "color": "muted" }
+    },
+    "fumadocs_css_variables": {
+      "--fd-primary": "#2563eb",
+      "--fd-primary-foreground": "#ffffff",
+      "--fd-background": "#ffffff",
+      "--fd-background-dark": "#0f1117"
+    },
+    "components": {
+      "card": {
+        "border_radius": "0.75rem",
+        "padding": "1.25rem",
+        "has_icon": true,
+        "has_hover_elevation": true
+      },
+      "callout": {
+        "border_radius": "0.5rem",
+        "border_left_width": "4px",
+        "padding": "1rem 1.25rem",
+        "variants": ["info", "warn", "tip", "note", "error"]
+      },
+      "code_block": {
+        "border_radius": "0.5rem",
+        "has_copy_button": true,
+        "has_filename_header": true,
+        "has_language_tabs": true,
+        "tab_languages": ["TypeScript", "Python", "cURL", "Go", "Rust"],
+        "syntax_highlighter": "Shiki",
+        "theme": "one-dark-pro"
+      },
+      "steps": {
+        "numbered": true,
+        "vertical_connector": true,
+        "step_title_weight": 600
+      },
+      "tabs": {
+        "border_bottom_style": "active indicator",
+        "animated_transition": true
+      },
+      "accordion": {
+        "chevron_icon": true,
+        "animated_expand": true
+      },
+      "table": {
+        "striped": false,
+        "hover_highlight": true,
+        "border_style": "horizontal-only"
+      }
+    }
+  },
+  "page_types": {
+    "landing_overview": {
+      "name": "Landing / Overview",
+      "description": "Product or section entry point. Establishes value prop, shows capabilities at a glance, directs to key journeys.",
+      "supermemory_examples": ["/docs/intro", "/docs/connectors/overview", "/docs/cookbook/overview", "/docs/memorybench/overview"],
+      "sections": [
+        { "id": "hero", "name": "Hero", "required": true, "content": "H1 title + 1-2 sentence value proposition + optional subtitle badge" },
+        { "id": "at_a_glance", "name": "At a Glance", "required": true, "content": "Key capabilities overview. Variant determines layout.", "variants": ["card_grid", "bullet_list", "prose_subsections"], "variant_notes": { "card_grid": "2-3 column CardGroup with icons, titles, and one-line descriptions. Used for section overviews with many sub-pages.", "bullet_list": "Bullet list with inline links to key pages. Used when overview has fewer items.", "prose_subsections": "H4 subsections with prose + images (e.g., Ingestion, Memory API, User Profiles). Used for the main intro page." } },
+        { "id": "visualization", "name": "Product Visualization", "required": false, "content": "Dark-themed screenshot, architecture diagram, or interactive demo embed" },
+        { "id": "how_it_works", "name": "How It Works (Brief)", "required": false, "content": "3-5 bullet summary of core mechanism or numbered steps" },
+        { "id": "use_cases", "name": "Use Cases / Key Features", "required": false, "content": "CardGroup or bullet list of primary use cases with brief descriptions" },
+        { "id": "next_steps", "name": "Next Steps", "required": true, "content": "2-column CardGroup linking to Quickstart and key concept pages" }
+      ],
+      "fumadocs_components": ["Card", "Cards", "Callout", "Step", "Steps", "ImageZoom"],
+      "frontmatter": {
+        "title": "string (required)",
+        "description": "string (required, SEO)",
+        "icon": "string (optional, section icon)",
+        "full_width": false
+      }
+    },
+    "quickstart_tutorial": {
+      "name": "Quickstart / Tutorial",
+      "description": "Hands-on onboarding guide. Gets reader from zero to working in minimal steps.",
+      "supermemory_examples": ["/docs/quickstart", "/docs/memorybench/quickstart", "/docs/vibe-coding"],
+      "sections": [
+        { "id": "hero", "name": "Title + Subtitle", "required": true, "content": "H1 + one-line goal statement ('Make your first API call')" },
+        { "id": "prerequisites", "name": "Prerequisites", "required": false, "content": "Warning/Info callout listing requirements (API key, runtime version, etc.). Some quickstarts embed prerequisites inline instead of a dedicated section." },
+        { "id": "steps", "name": "Numbered Steps", "required": true, "content": "Step-by-step instructions with code blocks.", "variants": ["steps_component", "bold_inline", "h3_numbered"], "variant_notes": { "steps_component": "Fumadocs Steps component with H2 per step. Each step: brief explanation + code block with language tabs.", "bold_inline": "Bold inline step numbers ('**Step 1.** Do X') within prose paragraphs. Less formal, used in shorter quickstarts.", "h3_numbered": "H3 headings with numbered step titles. Middle ground between Steps component and bold inline." } },
+        { "id": "product_screenshot", "name": "Dashboard Screenshot", "required": false, "content": "Dark-themed screenshot showing relevant UI (e.g., API key creation)" },
+        { "id": "verification", "name": "Verification / What Happens", "required": false, "content": "Expected output or behavior description. Bullet list of what the system does automatically." },
+        { "id": "callout_tip", "name": "Pro Tip", "required": false, "content": "Tip or Note callout with advanced guidance" },
+        { "id": "next_steps", "name": "Next Steps", "required": true, "content": "2-column CardGroup or text link list. CardGroup preferred but text links ('Learn more about User Profiles and Search') are acceptable for shorter quickstarts." }
+      ],
+      "fumadocs_components": ["Step", "Steps", "Callout", "Tab", "Tabs", "Card", "Cards", "ImageZoom"],
+      "content_rules": {
+        "max_steps": 5,
+        "code_blocks_per_step": "1-2",
+        "time_to_complete": "< 5 minutes",
+        "language_tabs_required": true
+      }
+    },
+    "concept_explainer": {
+      "name": "Concept Explainer",
+      "description": "Deep conceptual article. Builds mental model progressively from analogy to mechanism to implications.",
+      "supermemory_examples": ["/docs/concepts/how-it-works", "/docs/concepts/graph-memory", "/docs/concepts/memory-vs-rag", "/docs/concepts/super-rag"],
+      "sections": [
+        { "id": "hero", "name": "Title + Context", "required": true, "content": "H1 + 2-3 sentence framing that establishes why this concept matters" },
+        { "id": "mental_model", "name": "Mental Model / Analogy", "required": false, "content": "Comparison of two or more concepts to build intuition.", "variants": ["card_group", "dual_heading", "prose_analogy"], "variant_notes": { "card_group": "CardGroup comparing two concepts with icons and bullet traits (e.g., Documents vs Memories).", "dual_heading": "Two adjacent H2 blocks (e.g., '## Traditional Systems' / '## Supermemory') with bullet lists under each, rendering as a side-by-side comparison.", "prose_analogy": "Prose paragraph using a real-world analogy to introduce the concept. Used when no direct comparison exists." } },
+        { "id": "architecture_visual", "name": "Architecture Visualization", "required": false, "content": "Dark-themed diagram showing internal architecture or data flow" },
+        { "id": "mechanism", "name": "How It Works (Deep)", "required": true, "content": "H2 sections breaking down the mechanism. Code blocks showing data structures. Tables for pipeline stages." },
+        { "id": "comparison", "name": "Comparison / Trade-offs", "required": false, "content": "Side-by-side comparison blocks with 'When to Use Each' guidance.", "variants": ["table", "dual_heading", "tabbed_scenario"], "variant_notes": { "table": "Comparison table with Aspect/Approach A/Approach B columns.", "dual_heading": "Two adjacent H2 blocks showing different approaches with bullet lists.", "tabbed_scenario": "3+ tab comparison (e.g., 'The Scenario' / 'RAG Approach' / 'Memory Approach') showing the same problem solved different ways." } },
+        { "id": "examples", "name": "Real-World Examples", "required": false, "content": "Concrete use case code blocks showing the concept in action" },
+        { "id": "summary", "name": "The Bottom Line", "required": false, "content": "Callout with 3-5 bullet summary of key takeaways" },
+        { "id": "next_steps", "name": "Next Steps", "required": true, "content": "2-column CardGroup to related concepts and practical guides" }
+      ],
+      "fumadocs_components": ["Card", "Cards", "Callout", "Tab", "Tabs", "ImageZoom", "TypeTable"],
+      "content_rules": {
+        "flow": "mental_model → definitions → mechanisms → examples → action",
+        "visualization_count": "1-3 per page",
+        "code_blocks": "show data structures, not full implementations"
+      }
+    },
+    "integration_guide": {
+      "name": "Integration Guide",
+      "description": "Step-by-step guide for integrating with a specific framework, SDK, or platform.",
+      "supermemory_examples": ["/docs/integrations/claude-code", "/docs/integrations/mastra", "/docs/integrations/openai", "/docs/integrations/langchain"],
+      "sections": [
+        { "id": "hero", "name": "Title + Logo/Badge", "required": true, "content": "H1 with integration name + product image/logo + one-line integration description" },
+        { "id": "callout_link", "name": "External Link Callout", "required": false, "content": "Info callout linking to the integration partner's docs" },
+        { "id": "overview", "name": "Overview / What It Does", "required": true, "content": "Brief paragraph + bullet list of capabilities" },
+        { "id": "get_api_key", "name": "Get API Key", "required": false, "content": "Tabbed code or link to console for API key acquisition" },
+        { "id": "installation", "name": "Installation", "required": true, "content": "Code block with package install command (npm/pip/etc.)" },
+        { "id": "configuration", "name": "Configuration", "required": true, "content": "Environment variables, config file examples, settings table" },
+        { "id": "usage", "name": "Usage / How It Works", "required": true, "content": "Numbered steps or code walkthrough showing core integration" },
+        { "id": "what_gets_synced", "name": "What Gets Synced / Capabilities Table", "required": false, "content": "Table showing Category | Keywords | Example format" },
+        { "id": "api_reference", "name": "API Reference / Functions", "required": false, "content": "Function signatures with TypeScript/Python type annotations, parameter tables, and return type documentation. More detailed than a simple 'commands' list." },
+        { "id": "choice_point", "name": "Implementation Choice", "required": false, "content": "Two-approach structure (e.g., 'withSupermemory wrapper' vs 'Function calling tools'). CardGroup offering parallel tracks." },
+        { "id": "modes_comparison", "name": "Modes Comparison", "required": false, "content": "Table comparing different modes or configurations (e.g., memory modes table)." },
+        { "id": "advanced", "name": "Advanced Configuration", "required": false, "content": "Optional deeper config (custom OAuth, self-hosted, etc.)" },
+        { "id": "accordion_advanced", "name": "Advanced Details (Accordion)", "required": false, "content": "Expandable Accordion sections for Parameter Details, Error Handling, Advanced Configuration." },
+        { "id": "next_steps", "name": "Next Steps", "required": true, "content": "2-column CardGroup to related integrations and guides" }
+      ],
+      "fumadocs_components": ["Card", "Cards", "Callout", "Tab", "Tabs", "Step", "Steps", "TypeTable", "ImageZoom", "Accordion", "Accordions"],
+      "content_rules": {
+        "show_logo": true,
+        "language_tabs": true,
+        "config_table_required": true,
+        "hero_can_include_banner": "Hero section can include a full-width banner image, not just an inline logo"
+      }
+    },
+    "connector_guide": {
+      "name": "Connector Guide",
+      "description": "Setup guide for a data source connector. Covers auth, config, sync, and troubleshooting.",
+      "supermemory_examples": ["/docs/connectors/github", "/docs/connectors/notion", "/docs/connectors/gmail", "/docs/connectors/google-drive"],
+      "sections": [
+        { "id": "hero", "name": "Title + Subtitle", "required": true, "content": "H1 with connector name + one-line description" },
+        { "id": "plan_callout", "name": "Plan Requirement", "required": false, "content": "Warning callout if specific plan is required" },
+        { "id": "quick_setup", "name": "Quick Setup", "required": true, "content": "3-4 steps: Create connection → Handle OAuth → Configure resources. Tabbed code (TS/Python/cURL)." },
+        { "id": "supported_types", "name": "Supported Document Types", "required": true, "content": "File extension list, indexing behavior, content type mapping" },
+        { "id": "sync", "name": "Sync / Webhooks", "required": true, "content": "How automatic sync works, webhook setup, incremental sync" },
+        { "id": "management", "name": "Connection Management", "required": true, "content": "CRUD operations with code examples.", "sub_patterns": ["list_connections", "update_configure", "delete_connection", "manual_sync"], "sub_pattern_notes": { "list_connections": "List all connections with code example and response schema.", "update_configure": "Update connection settings, re-configure resources.", "delete_connection": "Delete a connection with confirmation pattern.", "manual_sync": "Trigger manual sync with code example." } },
+        { "id": "webhook_details", "name": "Webhook Details", "required": false, "content": "How It Works diagram, Webhook Security details, incremental sync behavior." },
+        { "id": "pipeline_diagram", "name": "Pipeline Diagram", "required": false, "content": "Visual flow diagram showing the connector pipeline (e.g., External Document -> Webhook -> Processing -> Index)." },
+        { "id": "advanced", "name": "Advanced Configuration", "required": false, "content": "Custom OAuth, enterprise setup, self-hosted options" },
+        { "id": "accordion_advanced", "name": "Advanced Details (Accordion)", "required": false, "content": "Expandable Accordion sections for Parameter Details, Error Handling, Advanced Configuration." },
+        { "id": "troubleshooting", "name": "Troubleshooting", "required": false, "content": "Common issues and fixes" },
+        { "id": "next_steps", "name": "Next Steps", "required": true, "content": "CardGroup linking to other connectors and troubleshooting" }
+      ],
+      "fumadocs_components": ["Card", "Cards", "Callout", "Tab", "Tabs", "Step", "Steps", "Accordion", "Accordions"]
+    },
+    "api_reference": {
+      "name": "API Reference",
+      "description": "Auto-generated endpoint documentation from OpenAPI spec. Shows method, path, params, request/response.",
+      "supermemory_examples": ["/docs/api-reference/memories/create-memories-directly", "/docs/api-reference/search/search-memory-entries"],
+      "layout": "two-column",
+      "api_reference_layout": {
+        "left_width": "60%",
+        "left_content": "Parameter documentation with type annotations, 'Show child attributes' toggle for nested types",
+        "right_width": "40%",
+        "right_bg": "#1a1a2e",
+        "right_sticky": true,
+        "right_content": "Dark code example block (JavaScript fetch examples)"
+      },
+      "sections": [
+        { "id": "endpoint_header", "name": "Endpoint Header", "required": true, "content": "HTTP method badge (POST=blue, GET=green, DELETE=red) + path + operation summary" },
+        { "id": "description", "name": "Description", "required": true, "content": "Multi-line endpoint description with context" },
+        { "id": "authentication", "name": "Authentication", "required": true, "content": "Required auth scheme (Bearer token, API key)" },
+        { "id": "parameters", "name": "Parameters", "required": false, "content": "Path params, query params with types, descriptions, defaults. Includes 'Show child attributes' toggle for nested types." },
+        { "id": "request_body", "name": "Request Body", "required": false, "content": "JSON schema with required/optional fields, nested types, validation rules" },
+        { "id": "response", "name": "Response", "required": true, "content": "Tabbed by status code (200/201, 400, 401, 404, 500) with response schemas" },
+        { "id": "code_examples", "name": "Code Examples", "required": true, "content": "Single JavaScript fetch example displayed in the right dark panel. Note: tabbed SDK examples (TS/Python/cURL) are only used in non-API-reference pages." },
+        { "id": "try_it", "name": "Try It (Interactive)", "required": false, "content": "Try It button that opens interactive playground (not an embedded widget)" }
+      ],
+      "fumadocs_components": ["fumadocs-openapi APIPage", "Tab", "Tabs"],
+      "generation_note": "API reference pages are auto-generated from OpenAPI specs via fumadocs-openapi. The wiki agent should generate the OpenAPI spec, not the rendered pages. Layout handled by fumadocs-openapi, not hand-built."
+    },
+    "cookbook_recipe": {
+      "name": "Cookbook / Recipe",
+      "description": "Complete implementation walkthrough. Builds a working feature from scratch with full code.",
+      "supermemory_examples": ["/docs/cookbook/personal-assistant", "/docs/cookbook/customer-support", "/docs/cookbook/document-qa"],
+      "sections": [
+        { "id": "hero", "name": "Title + Value Hook", "required": true, "content": "H1 + paragraph explaining what you'll build and what capabilities it has" },
+        { "id": "prerequisites", "name": "Prerequisites", "required": true, "content": "Bullet list: API key, runtime versions, packages. Warning callout for security." },
+        { "id": "choice_point", "name": "Implementation Choice", "required": false, "content": "CardGroup offering parallel tracks (e.g., Python + FastAPI vs TypeScript + Next.js)" },
+        { "id": "setup", "name": "Project Setup", "required": true, "content": "Environment config (.env), package install, project structure" },
+        { "id": "implementation", "name": "Step-by-Step Implementation", "required": true, "content": "H2 per major step (e.g., '## Step 1: Project Setup'), H3 per sub-step (e.g., '### Import Dependencies', '### Initialize Client', '### Define Schema'). Pattern for each step: explanation paragraph -> code block with filename header -> bridge paragraph connecting to next step. Sub-steps (H3) break down complex steps into digestible pieces." },
+        { "id": "full_code", "name": "Complete Code", "required": false, "content": "Accordion with full implementation for reference" },
+        { "id": "testing", "name": "Testing / Verification", "required": true, "content": "Test conversation examples, expected outputs, data inspection scripts" },
+        { "id": "troubleshooting", "name": "Troubleshooting", "required": false, "content": "Common issues Q&A format" },
+        { "id": "extensions", "name": "Customization / Extensions", "required": false, "content": "Ideas for extending the implementation" },
+        { "id": "next_steps", "name": "Next Steps", "required": true, "content": "CardGroup to related recipes and API reference" }
+      ],
+      "fumadocs_components": ["Card", "Cards", "Callout", "Tab", "Tabs", "Step", "Steps", "Accordion", "Accordions", "ImageZoom"],
+      "content_rules": {
+        "dual_track": true,
+        "explanation_density": "paragraph between every code block",
+        "pacing": "short prereq → medium setup → long implementation → short testing"
+      }
+    },
+    "reference_spec": {
+      "name": "Reference / Specification",
+      "description": "Formal reference documentation for CLI, config, metrics, or architecture.",
+      "supermemory_examples": ["/docs/memorybench/cli", "/docs/memorybench/architecture", "/docs/memorybench/memscore"],
+      "sections": [
+        { "id": "hero", "name": "Title + Purpose", "required": true, "content": "H1 + brief description of what this reference covers" },
+        { "id": "overview", "name": "Overview", "required": true, "content": "High-level summary of the component/feature" },
+        { "id": "commands_or_fields", "name": "Commands / Fields / Metrics", "required": true, "content": "Structured table or definition list. Columns: Name, Type, Description, Default." },
+        { "id": "examples", "name": "Usage Examples", "required": true, "content": "Code blocks showing common usage patterns" },
+        { "id": "configuration", "name": "Configuration", "required": false, "content": "Config file examples, environment variables" },
+        { "id": "architecture", "name": "Architecture Details", "required": false, "content": "Diagrams, component relationships, data flow" },
+        { "id": "next_steps", "name": "Related References", "required": true, "content": "CardGroup to related specs and guides" }
+      ],
+      "fumadocs_components": ["TypeTable", "Card", "Cards", "Callout", "Tab", "Tabs"]
+    },
+    "migration_guide": {
+      "name": "Migration Guide",
+      "description": "Guides migration from a competing product. Emphasizes before/after and step-by-step.",
+      "supermemory_examples": ["/docs/migration/from-mem0", "/docs/migration/from-zep"],
+      "sections": [
+        { "id": "hero", "name": "Title + Context", "required": true, "content": "H1 'Migrating from X to Y' + brief rationale" },
+        { "id": "quick_migration", "name": "Quick Migration", "required": false, "content": "All-in-one migration script for users who want to skip the detailed walkthrough. Placed before the step-by-step instructions." },
+        { "id": "api_mapping", "name": "API Mapping", "required": true, "content": "Side-by-side tabbed code blocks showing equivalent operations in old vs new SDK. Tabs labeled with product names (e.g., 'Mem0' / 'Supermemory')." },
+        { "id": "mapping", "name": "Concept Mapping", "required": true, "content": "Before/after code blocks showing equivalent operations" },
+        { "id": "steps", "name": "Migration Steps", "required": true, "content": "Numbered steps for the migration process" },
+        { "id": "gotchas", "name": "Common Gotchas", "required": false, "content": "Warning callouts for migration pitfalls" },
+        { "id": "next_steps", "name": "Next Steps", "required": true, "content": "CardGroup to quickstart and concepts" }
+      ],
+      "fumadocs_components": ["Card", "Cards", "Callout", "Tab", "Tabs", "Step", "Steps", "TypeTable"]
+    },
+    "feature_guide": {
+      "name": "Feature / Operations Guide",
+      "description": "SDK feature walkthrough with parameter tables, code examples, and accordion-wrapped advanced content. Covers authentication, core API operations, and feature-specific guides.",
+      "supermemory_examples": ["/docs/authentication", "/docs/add-memories", "/docs/search", "/docs/memory-operations", "/docs/document-operations"],
+      "sections": [
+        { "id": "hero", "name": "Title + Description", "required": true, "content": "H1 title + one-line description of the feature/operation" },
+        { "id": "quick_start_code", "name": "Quick Start Code", "required": true, "content": "Tabbed code block (TypeScript / Python / cURL) showing the most common usage in minimal lines" },
+        { "id": "parameters_table", "name": "Parameters Table", "required": true, "content": "TypeTable with columns: Name, Type, Default, Description. Marks required params. Includes 'Show child attributes' for nested objects." },
+        { "id": "operational_sections", "name": "Operational Sections", "required": true, "content": "Multiple H2 sections, each covering one operation or use case. Pattern: explanation paragraph -> code block with language tabs -> expected output or behavior note." },
+        { "id": "accordion_advanced", "name": "Advanced Details (Accordion)", "required": false, "content": "Expandable Accordion sections for: Error Handling, Batch Upload, Delete Content, Response Schema, Filter Types, Parameter Details. Each accordion contains code examples and tables." },
+        { "id": "next_steps", "name": "Next Steps", "required": true, "content": "2-column CardGroup linking to related features, API reference, and concept pages" }
+      ],
+      "fumadocs_components": ["Card", "Cards", "Callout", "Tab", "Tabs", "TypeTable", "Accordion", "Accordions"],
+      "content_rules": {
+        "code_first": true,
+        "every_operation_has_code": true,
+        "parameter_table_required": true,
+        "accordion_for_advanced": true
+      }
+    }
+  },
+  "universal_patterns": {
+    "every_page_has": [
+      "H1 title as first element",
+      "1-2 sentence description/subtitle after H1",
+      "Right-rail 'On this page' table of contents",
+      "'Next Steps' CardGroup (2-column) as final section",
+      "Breadcrumb navigation in header (small gray text above H1)",
+      "Edit page link",
+      "'Was this page helpful?' Yes/No feedback widget at footer",
+      "Previous / Next page navigation with arrows",
+      "'Skip to main content' accessibility link",
+      "AI Assistant widget (Ctrl+I) with pre-filled suggestion prompts",
+      "Contact support link in footer",
+      "Logo with light/dark variants in header",
+      "'Copy page' button adjacent to H1"
+    ],
+    "navigation": {
+      "header": "60px sticky header with logo, search (Cmd+K), 'Ask AI' button, CTA, and settings gear. See design_tokens.header.",
+      "section_tabs": "Horizontal tab bar below header with icon+text tabs for major sections. Active tab has dark underline. See design_tokens.section_tab_bar.",
+      "sidebar": "Collapsible tree with section grouping and icons. Not visible on all pages (hidden on changelog, memorybench overview). Scrolls independently.",
+      "toc": "Right-rail 'On this page' with H2/H3 links. Active item highlighted in blue (link_color).",
+      "footer": "Previous / Next page navigation with arrows + social icons (GitHub, LinkedIn, X) + 'Powered by' branding",
+      "search": "Cmd+K modal with full-text + AI-powered search ('Ask AI' button with sparkle icon)"
+    },
+    "content_flow": "mental_model → definitions → mechanisms → examples → action → next_steps",
+    "code_patterns": {
+      "always_tabbed": true,
+      "default_languages": ["TypeScript", "Python"],
+      "copy_button": true,
+      "filename_headers": true,
+      "dark_theme_syntax": true
+    },
+    "visual_hierarchy": [
+      "H1 (page title) — one per page",
+      "H2 (major sections) — 4-8 per page",
+      "H3 (subsections) — as needed under H2",
+      "No H4+ in most pages — kept flat"
+    ]
+  },
+  "fumadocs_component_mapping": {
+    "mintlify_to_fumadocs": {
+      "CardGroup": "Cards (fumadocs-ui/components/card)",
+      "Card": "Card (fumadocs-ui/components/card)",
+      "Callout/Note/Warning/Tip": "Callout (fumadocs-ui/components/callout) -- use type='info'|'warn'|'tip'|'note'|'error'",
+      "CodeGroup": "Tab + Tabs (fumadocs-ui/components/tabs) wrapping code blocks",
+      "Accordion": "Accordion + Accordions (fumadocs-ui/components/accordion)",
+      "Steps": "Step + Steps (fumadocs-ui/components/steps)",
+      "Tabs": "Tab + Tabs (fumadocs-ui/components/tabs)",
+      "ResponseField": "TypeTable (fumadocs-ui/components/type-table)",
+      "ParamField": "TypeTable (fumadocs-ui/components/type-table)",
+      "Frame/Image": "ImageZoom (fumadocs-ui/components/image-zoom)",
+      "API Playground": "fumadocs-openapi APIPage",
+      "Mermaid/SequenceDiagram": "MermaidDiagram (custom component using rehype-mermaid plugin or inline <Mermaid> component). Renders flowcharts, sequence diagrams, and pipeline flows.",
+      "HTTPMethodBadge": "MethodBadge (custom component). Colors: POST=#2563eb blue, GET=#16a34a green, PUT=#d97706 amber, DELETE=#dc2626 red. Uppercase, ~11-12px, weight 600.",
+      "ShowChildAttributes": "ExpandableType (custom component). Toggle to reveal nested schema properties. Used in API reference parameter docs.",
+      "ComingSoonCard": "DisabledCard (custom component). Grayed-out card with 'Coming Soon' badge. No click handler. Used for upcoming features/recipes.",
+      "PlatformTabs": "Tabs (fumadocs-ui/components/tabs) with items={['macOS', 'Linux', 'Windows']}. Document as a Tabs pattern variant for OS-specific instructions.",
+      "PlanCallout": "Callout (fumadocs-ui/components/callout) with type='warn' and a plan badge (e.g., 'Pro Plan Required'). Extend to all templates, not just connectors.",
+      "PricingTable": "PricingTable (custom component). Distinct from standard TypeTable. Shows tier name, price, features, and CTA button per column.",
+      "StatusCodeTabs": "Tabs (fumadocs-ui/components/tabs) with items={['200', '400', '401', '500']}. Each tab shows the response schema for that status code.",
+      "ExternalLinkCard": "Card (fumadocs-ui/components/card) with external URL badge (northeast arrow icon, ~12px). href opens in new tab.",
+      "HeroImage": "ImageZoom (fumadocs-ui/components/image-zoom) with hero positioning CSS (full-width, dark-themed product screenshot).",
+      "LiveDemoBadge": "LiveDemoBadge (custom inline CTA component). Small styled link badge with 'Try Live Demo' text and external link icon.",
+      "ResponseHeadersTable": "TypeTable (fumadocs-ui/components/type-table) with documented pattern for response headers (Name, Value, Description columns).",
+      "HorizontalRule": "Standard markdown --- or * * * rendered as a thin #e5e7eb line. Used between major H2 sections in ~25 pages.",
+      "FeedbackWidget": "Custom 'Was this page helpful?' component with Yes/No pill buttons. Positioned after last content section, before footer nav.",
+      "CopyPageButton": "Custom ghost button with clipboard icon + 'Copy page' text. Positioned top-right of content area, aligned with H1."
+    }
+  },
+  "content_length_targets": {
+    "description": "Per-page-type word count targets. Agent must check word count after generation.",
+    "landing_overview": { "target": "400-800", "min": 200, "max": 1200 },
+    "quickstart_tutorial": { "target": "600-1200", "min": 400, "max": 1500 },
+    "concept_explainer": { "target": "1000-2000", "min": 600, "max": 3000 },
+    "integration_guide": { "target": "800-1500", "min": 500, "max": 2000 },
+    "feature_guide": { "target": "800-2000", "min": 500, "max": 3000 },
+    "connector_guide": { "target": "800-1500", "min": 500, "max": 2000 },
+    "api_reference": { "target": "auto-generated", "min": null, "max": null, "note": "Generated from OpenAPI spec via fumadocs-openapi. No manual word count target." },
+    "cookbook_recipe": { "target": "1500-3000", "min": 800, "max": 5000 },
+    "reference_spec": { "target": "500-1500", "min": 300, "max": 3000 },
+    "migration_guide": { "target": "800-1500", "min": 500, "max": 2000 }
+  },
+  "cross_link_strategy": {
+    "description": "Two-pass cross-linking to ensure all pages are properly linked.",
+    "pass_1_generation": {
+      "description": "During page generation, insert placeholder links for pages that may not exist yet.",
+      "syntax": "[LINK:slug]",
+      "example": "See [LINK:concepts/graph-memory] for details on how graph memory works.",
+      "rules": [
+        "Every page must have at least 2 inline links to related concept pages",
+        "Every page must end with 2+ Next Steps cards",
+        "Use breadcrumb-compatible paths (e.g., /docs/concepts/architecture not /docs/arch)"
+      ]
+    },
+    "pass_2_resolution": {
+      "description": "After all pages are generated, resolve placeholders to actual paths.",
+      "steps": [
+        "Scan all generated pages for [LINK:slug] placeholders",
+        "Resolve each placeholder to an actual file path",
+        "Report unresolvable links as warnings",
+        "Add missing Next Steps cards where pages have fewer than 2 outgoing links"
+      ]
+    }
+  },
+  "degradation_rules": {
+    "description": "Fallback rules when MCP tools are unavailable. Ensures generation continues with reduced fidelity.",
+    "codegraph_unavailable": {
+      "fallback": "Skip CodeGraph semantic analysis. Use file-tree scanning and grep-based symbol resolution instead.",
+      "frontmatter_flag": "codegraph_available: false",
+      "impact": "Callers/callees analysis missing. Generate based on import/export statements only."
+    },
+    "notebooklm_unavailable": {
+      "fallback": "Use Mermaid code blocks instead of NotebookLM infographics. Generate text-based architecture diagrams.",
+      "frontmatter_flag": "infographics: false",
+      "impact": "No polished infographic images. Mermaid diagrams are functional but less visually refined."
+    },
+    "repomix_unavailable": {
+      "fallback": "Use raw file reads with 50K token cap. Prioritize entry-point files, config, and READMEs.",
+      "frontmatter_flag": "repomix_available: false",
+      "impact": "May miss some files in large repos. Focus on the most important files."
+    },
+    "llm_failure": {
+      "fallback": "Generate a skeleton page using the page type template with placeholder content. Mark as draft.",
+      "frontmatter_flag": "draft: true",
+      "impact": "Page exists in navigation but content is incomplete. Requires manual review."
+    }
+  }
+}

@@ -1,0 +1,323 @@
+{
+  "informationArchitecture": {
+    "chosenVariant": "journey-led",
+    "variants": [
+      {
+        "id": "journey-led",
+        "label": "Journey-led",
+        "summary": "Lead with the contributor's first successful docs workflow, then branch into repo vocabulary and deeper context.",
+        "tradeoffs": [
+          "Fastest route from landing page to a useful page",
+          "Requires hand-curated outcome links to stay sharp"
+        ],
+        "score": {
+          "cognitiveLoad": 92,
+          "journeyCompleteness": 95,
+          "navigationDepth": 88
+        }
+      },
+      {
+        "id": "surface-led",
+        "label": "Surface-led",
+        "summary": "Group the corpus by code surface first, with frontend, agent, and docs infrastructure sections.",
+        "tradeoffs": [
+          "Better for maintainers who already know the repo layout",
+          "Slower for first-time readers who need task-oriented entry points"
+        ],
+        "score": {
+          "cognitiveLoad": 76,
+          "journeyCompleteness": 82,
+          "navigationDepth": 90
+        }
+      },
+      {
+        "id": "concept-led",
+        "label": "Concept-led",
+        "summary": "Start with conceptual labels and protocols, then link into routes, commands, and the product surface.",
+        "tradeoffs": [
+          "Strong for narrative reading",
+          "Can hide the fastest operational path when a reader just needs the next command"
+        ],
+        "score": {
+          "cognitiveLoad": 71,
+          "journeyCompleteness": 79,
+          "navigationDepth": 84
+        }
+      }
+    ],
+    "outcomes": [
+      {
+        "label": "Open the correct route",
+        "href": "/docs/getting-started",
+        "summary": "Start with the route split, local commands, and verification loop."
+      },
+      {
+        "label": "Understand the browser boundary",
+        "href": "/docs/kijko-frontend",
+        "summary": "See how `/`, `/docs`, and `/chat` divide reader and operator work."
+      },
+      {
+        "label": "Decode seeded repo vocabulary",
+        "href": "/docs/panopticon",
+        "summary": "Read the labels that already exist in help text, tests, and seed data."
+      },
+      {
+        "label": "Follow a context handoff",
+        "href": "/docs/baton-exchange",
+        "summary": "Use the protocol-style page shape for relay and handoff concepts."
+      }
+    ],
+    "journey": [
+      {
+        "id": "add",
+        "title": "Add",
+        "summary": "Enter through the docs landing page and the first committed markdown pages.",
+        "pageSlugs": ["index", "getting-started"]
+      },
+      {
+        "id": "check",
+        "title": "Check",
+        "summary": "Verify the active browser and MkDocs surfaces before making wider claims.",
+        "pageSlugs": ["kijko-frontend", "getting-started"]
+      },
+      {
+        "id": "query",
+        "title": "Query",
+        "summary": "Use seeded labels and doc links to answer what each term means in this repo.",
+        "pageSlugs": ["panopticon", "hypervisa-3-0"]
+      },
+      {
+        "id": "iterate",
+        "title": "Iterate",
+        "summary": "Use versioned labels, handoff pages, and diagrams to refine the docs set without breaking coherence.",
+        "pageSlugs": ["panopticon-2-0", "baton-exchange", "kijko-frontend"]
+      }
+    ],
+    "personas": [
+      {
+        "name": "First-time contributor",
+        "summary": "Needs the shortest zero-to-aha path from a fresh checkout to a meaningful docs edit.",
+        "supportSignals": [
+          "Where do I start reading?",
+          "Which command proves the docs surface still works?"
+        ]
+      },
+      {
+        "name": "Docs maintainer",
+        "summary": "Needs strong file-backed navigation, predictable templates, and evidence-driven update rules.",
+        "supportSignals": [
+          "Which page owns this claim?",
+          "How do I keep the reader and MkDocs nav aligned?"
+        ]
+      },
+      {
+        "name": "Operator",
+        "summary": "Needs to move between docs context and the `/chat` control surface without losing orientation.",
+        "supportSignals": [
+          "What belongs on `/docs` versus `/chat`?",
+          "Which route should I validate after changing markdown?"
+        ]
+      }
+    ],
+    "metrics": {
+      "cognitiveLoad": 92,
+      "journeyCompleteness": 95,
+      "navigationDepth": 88
+    }
+  },
+  "designSystem": {
+    "typography": [
+      "Georgia-based editorial stack for long-form reading",
+      "Large hero type for route orientation",
+      "Monospace code blocks with explicit language captions"
+    ],
+    "palette": [
+      "Parchment background",
+      "Teal action color",
+      "Ink-forward contrast for prose",
+      "Dark mode using slate and cyan accents"
+    ],
+    "motion": [
+      "Keep interactions minimal and reading-focused",
+      "Use hover elevation only for navigation cards"
+    ],
+    "surfaces": [
+      "Blurred paper panels",
+      "Sticky sidebar for search and TOC",
+      "Reader-first article shell"
+    ]
+  },
+  "conventions": [
+    "Start each page with an evidence-driven overview",
+    "Use headings that describe the next decision a reader needs to make",
+    "Prefer route, file, and command references over generic promises",
+    "Add related-page links instead of burying the next step in long prose",
+    "Keep diagram blocks in fenced code sections so both the web reader and MkDocs stay aligned"
+  ],
+  "templateLibrary": [
+    {
+      "id": "overview",
+      "title": "Overview page",
+      "sections": ["Overview", "What Lives Here", "Reading Order", "Sources"],
+      "componentMappings": {
+        "web": "DocsLanding",
+        "mkdocs": "material.page",
+        "mintlify": "overview"
+      }
+    },
+    {
+      "id": "getting-started",
+      "title": "Getting started",
+      "sections": ["Overview", "Open The Surface", "Local Commands", "Next Steps"],
+      "componentMappings": {
+        "web": "MarkdownPage",
+        "mkdocs": "material.page",
+        "docusaurus": "DocItem"
+      }
+    },
+    {
+      "id": "concept",
+      "title": "Concept explainer",
+      "sections": ["Overview", "Why It Matters", "Practical Reading", "Sources"],
+      "componentMappings": {
+        "web": "MarkdownPage",
+        "mkdocs": "material.page",
+        "gitbook": "content-page"
+      }
+    },
+    {
+      "id": "protocol",
+      "title": "Protocol reference",
+      "sections": ["Role", "Participants", "Example", "Related Pages"],
+      "componentMappings": {
+        "web": "MarkdownPage",
+        "mkdocs": "material.page",
+        "nextra": "docs-page"
+      },
+      "visualSupport": {
+        "diagramHooks": ["mermaid", "sequence"]
+      }
+    },
+    {
+      "id": "frontend-boundary",
+      "title": "Surface boundary page",
+      "sections": ["Current Shape", "Route Responsibilities", "Verification Loop", "Sources"],
+      "componentMappings": {
+        "web": "MarkdownPage",
+        "mkdocs": "material.page",
+        "fumadocs": "docs.page"
+      },
+      "extends": "overview"
+    },
+    {
+      "id": "architecture-diagram",
+      "title": "Architecture diagram page",
+      "sections": ["Context", "Diagram", "Boundary Notes", "Verification"],
+      "componentMappings": {
+        "web": "MarkdownPage",
+        "mkdocs": "material.page",
+        "mintlify": "diagram-block"
+      },
+      "visualSupport": {
+        "diagramHooks": ["mermaid", "d2"]
+      }
+    },
+    {
+      "id": "sequence-diagram",
+      "title": "Sequence diagram page",
+      "sections": ["Actors", "Sequence", "Failure Modes", "Related Pages"],
+      "componentMappings": {
+        "web": "MarkdownPage",
+        "mkdocs": "material.page",
+        "docusaurus": "MDXSequence"
+      },
+      "visualSupport": {
+        "diagramHooks": ["sequence", "mermaid"]
+      }
+    },
+    {
+      "id": "screenshot-walkthrough",
+      "title": "Screenshot walkthrough",
+      "sections": ["Context", "Capture Targets", "Callouts", "Verification"],
+      "componentMappings": {
+        "web": "MarkdownPage",
+        "mkdocs": "material.page",
+        "gitbook": "callout-block"
+      },
+      "visualSupport": {
+        "capture": "playwright",
+        "annotations": true
+      }
+    },
+    {
+      "id": "video-walkthrough",
+      "title": "Video walkthrough",
+      "sections": ["Context", "Narration Beats", "Clip Order", "Verification"],
+      "componentMappings": {
+        "web": "MarkdownPage",
+        "mkdocs": "material.page",
+        "nextra": "video-embed"
+      },
+      "visualSupport": {
+        "capture": "browser-recorder",
+        "videoWalkthrough": true
+      },
+      "extends": "screenshot-walkthrough"
+    }
+  ],
+  "componentMappings": {
+    "platforms": {
+      "mintlify": "Cards, Callouts, Steps, Tabs",
+      "docusaurus": "MDX components, DocItem, Admonitions",
+      "fumadocs": "Card, Cards, Callout, Tab, Tabs, Step, Steps, Accordion, Accordions, TypeTable, ImageZoom, fumadocs-openapi APIPage",
+      "nextra": "docs-page, cards, tabs",
+      "gitbook": "content-page, hint, tabs"
+    },
+    "note": "For Fumadocs output, the full component mapping in page-type-templates.json supersedes this coarse mapping."
+  },
+  "fumadocsDesignTokens": {
+    "_note": "These tokens supersede designSystem for Fumadocs output. Retain existing designSystem tokens for the landing page and MkDocs legacy output.",
+    "typography": {
+      "body": "Inter, system-ui, sans-serif",
+      "code": "JetBrains Mono, Fira Code, monospace",
+      "heading": "Inter, system-ui, sans-serif",
+      "_conflict_note": "Fumadocs uses Inter (not Georgia). Georgia retained in designSystem for editorial/landing page use."
+    },
+    "palette": {
+      "primary": "#2563eb",
+      "primary_dark": "#60a5fa",
+      "brand_accent": "#7c3aed",
+      "background": "#ffffff",
+      "background_dark": "#0f1117",
+      "foreground": "#1a1a2e",
+      "foreground_dark": "#e0e0e0",
+      "_conflict_note": "Fumadocs uses blue (#2563eb) primary, not teal. Teal retained in designSystem for landing page brand identity."
+    },
+    "ia_variant": "taxonomy-led",
+    "ia_variant_note": "Fumadocs docs use taxonomy-led IA (by page type). The journey-led IA in informationArchitecture is retained for the landing page navigation.",
+    "css_variables": {
+      "--fd-primary": "#2563eb",
+      "--fd-primary-foreground": "#ffffff"
+    }
+  },
+  "templateLibraryMappings": {
+    "_note": "Maps old style-system template IDs to new page-type-templates.json page types.",
+    "overview": "landing_overview",
+    "getting-started": "quickstart_tutorial",
+    "concept": "concept_explainer",
+    "protocol": "reference_spec",
+    "frontend-boundary": "concept_explainer (with custom sections)",
+    "architecture-diagram": "embedded in concept_explainer via infographics",
+    "sequence-diagram": "embedded in concept_explainer via infographics",
+    "screenshot-walkthrough": "embedded in cookbook_recipe",
+    "video-walkthrough": "embedded in cookbook_recipe"
+  },
+  "marketplace": {
+    "visibility": "curated-local-catalog",
+    "featuredBundles": [
+      "journey-led-reader",
+      "protocol-reference-pack",
+      "visual-walkthrough-pack"
+    ]
+  }
+}
