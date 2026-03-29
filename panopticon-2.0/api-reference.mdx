@@ -1,0 +1,559 @@
+---
+title: API Reference
+description: "Complete type definitions for PipelineConfig, AgentContext, AgentResult, all artifact types, MCP data shapes, and Mastra tool schemas"
+icon: Code
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Accordion, Accordions } from 'fumadocs-ui/components/accordion'
+import { TypeTable } from 'fumadocs-ui/components/type-table'
+
+All types are defined in `apps/agent/src/lib/pipeline/types.ts` and exported from `apps/agent/src/lib/pipeline/index.ts`. The Mastra tool schemas are in `apps/agent/src/mastra/tools/pipeline-tools.ts`.
+
+## Core Interfaces
+
+### PipelineAgent
+
+The interface that every agent implements:
+
+```typescript
+interface PipelineAgent {
+  name: string;
+  execute(context: AgentContext): Promise<AgentResult>;
+}
+```
+
+### AgentContext
+
+The context object passed to every agent. It carries MCP data, previous phase results, and pipeline metadata:
+
+```typescript
+interface AgentContext {
+  /** Unique run identifier. */
+  pipelineId: string;
+  /** Repository slug being documented. */
+  repoSlug: string;
+  /** Local filesystem path to the repo checkout. */
+  repoPath: string;
+  /** Existing wiki pages (slug list) for gap analysis. */
+  existingPages: string[];
+  /** CodeGraph symbol data, if available. */
+  codeGraphData?: CodeGraphData;
+  /** CGC analysis data, if available. */
+  cgcData?: CgcData;
+  /** NotebookLM research context, if available. */
+  notebookContext?: NotebookData;
+  /** Forensic-ingest artifacts (Phase 0), if available. */
+  forensicIngest?: ForensicIngestArtifacts;
+  /** Current pipeline state (for reading previous phase results). */
+  pipelineState: PipelineState;
+  /** MCP tool availability flags. */
+  toolAvailability: ToolAvailability;
+}
+```
+
+### AgentResult
+
+The return value from every agent's `execute()` method:
+
+```typescript
+interface AgentResult {
+  /** Whether the agent completed successfully. */
+  success: boolean;
+  /** Structured output data (varies per agent). */
+  artifacts: Record<string, unknown>;
+  /** Human-readable error messages. */
+  errors: string[];
+  /** Execution metrics. */
+  metrics: AgentMetrics;
+  /** Optional context additions for downstream phases. */
+  nextContext?: Partial<AgentContext>;
+}
+
+interface AgentMetrics {
+  durationMs: number;
+  llmCalls: number;
+  toolCalls: number;
+}
+```
+
+### PipelineConfig
+
+Configuration for a pipeline run:
+
+```typescript
+interface PipelineConfig {
+  repoSlug: string;
+  repoPath: string;
+  triggerType: TriggerType;
+  /** Phases to skip (merged with trigger-type defaults). */
+  skipPhases?: PhaseName[];
+  /** When true, log actions but don't write files. */
+  dryRun?: boolean;
+  /** Specific page slugs to scope work to. */
+  targetSlugs?: string[];
+}
+
+type TriggerType =
+  | "full"
+  | "incremental"
+  | "single_page"
+  | "preview"
+  | "drift_check"
+  | "manual";
+```
+
+## State Types
+
+### PipelineState
+
+Top-level state for a pipeline run:
+
+```typescript
+interface PipelineState {
+  id: string;
+  repoSlug: string;
+  currentPhase: PhaseName | null;
+  phases: PhaseState[];
+  startedAt: string;
+  completedAt?: string;
+  status: "queued" | "running" | "completed" | "failed" | "paused";
+}
+```
+
+### PhaseState
+
+Per-phase state within a pipeline run:
+
+```typescript
+type PhaseStatus = "pending" | "running" | "complete" | "failed" | "skipped";
+
+interface PhaseState {
+  name: PhaseName;
+  status: PhaseStatus;
+  agentResult?: AgentResult;
+  error?: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+```
+
+### Phase Constants
+
+```typescript
+const PHASE_NAMES = [
+  "audit", "ia", "writer", "verifier", "qa", "monitor", "publish",
+] as const;
+
+type PhaseName = (typeof PHASE_NAMES)[number];
+
+const PHASE_ORDER: Record<PhaseName, number> = {
+  audit: 0, ia: 1, writer: 2, verifier: 3, qa: 4, monitor: 5, publish: 6,
+};
+```
+
+## Per-Agent Artifact Types
+
+Each agent produces a typed artifact object. These types define the structure of `agentResult.artifacts`:
+
+<Accordions>
+  <Accordion title="AuditArtifacts (Phase 1)">
+    ```typescript
+    interface AuditArtifacts {
+      gaps: Array<{
+        symbol: string;
+        kind: string;
+        importance: "high" | "medium" | "low";
+      }>;
+      contradictions: Array<{
+        subject: string;
+        pages: string[];
+        detail: string;
+      }>;
+      coverageScore: number;  // 0.0 to 1.0
+      stalePages: Array<{
+        slug: string;
+        reason: string;
+      }>;
+      existingPageCount: number;
+      codeSymbolCount: number;
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="IAArtifacts (Phase 2)">
+    ```typescript
+    interface IAPage {
+      slug: string;
+      title: string;
+      pageType: PageType;    // One of 10 page types
+      section: string;       // Sidebar section
+      dependsOn: string[];   // Pages this depends on
+      estimatedWordCount: number;
+    }
+
+    interface IAArtifacts {
+      pages: IAPage[];
+      sidebarStructure: Record<string, unknown>;  // Fumadocs meta.json format
+      sectionTaxonomy: string[];
+      generationOrder: string[];  // Slug order for Writer
+      totalEstimatedPages: number;
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="WriterArtifacts (Phase 3)">
+    ```typescript
+    interface WriterArtifacts {
+      generatedPages: Array<{
+        slug: string;
+        title: string;
+        pageType: PageType;
+        mdxContent: string;   // Full MDX with frontmatter and imports
+        wordCount: number;
+      }>;
+      crossLinkPlaceholders: Array<{
+        slug: string;          // Source page
+        placeholder: string;   // e.g. "[LINK:concepts/foo]"
+      }>;
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="VerifierArtifacts (Phase 4)">
+    ```typescript
+    interface VerifierArtifacts {
+      snippets: Array<{
+        slug: string;
+        language: string;
+        code: string;
+        status: "passed" | "failed" | "skipped";
+        error?: string;
+        correctedCode?: string;
+      }>;
+      passRate: number;       // 0.0 to 1.0
+      totalSnippets: number;
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="QAArtifacts (Phase 5)">
+    ```typescript
+    interface QAArtifacts {
+      brokenLinks: Array<{
+        source: string;
+        target: string;
+        type: "internal" | "external";
+      }>;
+      headingIssues: Array<{
+        slug: string;
+        message: string;
+      }>;
+      frontmatterIssues: Array<{
+        slug: string;
+        missing: string[];
+      }>;
+      resolvedPlaceholders: Array<{
+        slug: string;
+        placeholder: string;  // Original [LINK:slug]
+        resolved: string;     // Resolved markdown link
+      }>;
+      contentLengthIssues: Array<{
+        slug: string;
+        actual: number;
+        target: number;
+      }>;
+      overallScore: number;  // 0.0 to 1.0
+      correctedPages: Array<{
+        slug: string;
+        mdxContent: string;  // Content with resolved placeholders
+      }>;
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="MonitorArtifacts (Phase 6)">
+    ```typescript
+    interface MonitorArtifacts {
+      driftReport: Array<{
+        slug: string;
+        stalenessScore: number;  // 0.0 (fresh) to 1.0 (stale)
+        lastUpdated: string;
+        codeChanges: number;
+        recommendation: "ok" | "review" | "regenerate";
+      }>;
+      reauditTriggers: string[];   // Slugs that need regeneration
+      averageFreshness: number;    // 0.0 to 1.0 (1.0 = all fresh)
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="PublishArtifacts (Phase 7)">
+    ```typescript
+    interface PublishArtifacts {
+      /** Absolute paths of written MDX files. */
+      writtenFiles: string[];
+      /** Absolute paths of updated meta.json navigation configs. */
+      updatedNavConfigs: string[];
+      /** Count of pages persisted to the SQLite database. */
+      savedToDb: number;
+      /** Non-fatal errors encountered during publish. */
+      errors: string[];
+    }
+    ```
+  </Accordion>
+</Accordions>
+
+## MCP Data Shapes
+
+These types define the data returned by MCP client pre-fetches and stored in `AgentContext`:
+
+### CodeGraphData
+
+```typescript
+interface CodeGraphSymbol {
+  name: string;
+  kind: "function" | "class" | "interface" | "type" | "variable" | "method";
+  filePath: string;
+  visibility: "exported" | "internal";
+  signature?: string;
+}
+
+interface CodeGraphData {
+  symbols: CodeGraphSymbol[];
+  callGraph: Array<{ caller: string; callee: string }>;
+}
+```
+
+### CgcData
+
+```typescript
+interface CgcData {
+  deadCode: Array<{ symbol: string; file: string }>;
+  complexity: Array<{ file: string; score: number }>;
+  dependencies: Array<{ from: string; to: string }>;
+}
+```
+
+### NotebookData
+
+```typescript
+interface NotebookData {
+  summaries: Array<{ topic: string; content: string }>;
+  sourceIds: string[];
+}
+```
+
+### ForensicIngestArtifacts
+
+```typescript
+interface ForensicSourceFile {
+  /** Cluster/subsystem name (e.g. "apps-agent-src-lib-1"). */
+  name: string;
+  /** Absolute path to the generated markdown file. */
+  path: string;
+  /** Markdown content of the source. */
+  content: string;
+}
+
+interface ForensicIngestArtifacts {
+  /** Per-subsystem source markdown documents from segmentation. */
+  sources: ForensicSourceFile[];
+  /** Full dependency graph JSON (clusters, edges, PageRank, cycles). */
+  dependencyGraph: Record<string, unknown>;
+  /** Code Map Index markdown (if generated). */
+  codeMapIndex?: string;
+}
+```
+
+### ToolAvailability
+
+```typescript
+interface ToolAvailability {
+  codegraph: boolean;
+  cgc: boolean;
+  notebooklm: boolean;
+  repomix: boolean;
+  /** True if forensic-ingest Python scripts are available. */
+  forensicIngest: boolean;
+}
+```
+
+## PipelineStateStore Interface
+
+```typescript
+interface PipelineStateStore {
+  save(state: PipelineState): void;
+  load(id: string): PipelineState | null;
+  list(): PipelineState[];
+}
+```
+
+The default implementation is `InMemoryStateStore`. See [State Persistence](/docs/panopticon-2.0/state-persistence) for details on implementing custom backends.
+
+## PipelineOrchestrator API
+
+```typescript
+class PipelineOrchestrator {
+  constructor(deps: OrchestratorDeps);
+
+  /** Execute a full pipeline run. */
+  execute(config: PipelineConfig): Promise<PipelineState>;
+
+  /** Resume a failed pipeline from the last successful phase. */
+  resume(pipelineId: string, config: PipelineConfig): Promise<PipelineState>;
+
+  /** Get the current state of a pipeline. */
+  getStatus(pipelineId: string): PipelineState | null;
+
+  /** List all pipeline runs. */
+  listRuns(): PipelineState[];
+}
+
+interface OrchestratorDeps {
+  mastraAgent?: { generate: (prompt: string) => Promise<{ text: string }> };
+  listExistingPages: () => string[];
+  stateStore?: PipelineStateStore;
+}
+```
+
+## Mastra Tool Schemas
+
+The pipeline exposes three Mastra tools at `apps/agent/src/mastra/tools/pipeline-tools.ts`:
+
+### classify-page-type
+
+Classifies a wiki page into one of 10 page types based on slug and optional content analysis.
+
+**Input**:
+```typescript
+{
+  slug: string;       // Required -- page slug to classify
+  content?: string;   // Optional -- page content for accuracy
+}
+```
+
+**Output**:
+```typescript
+{
+  pageType: PageType;             // e.g. "concept_explainer"
+  confidence: number;             // 0.0 to 1.0
+  suggestedSections: string[];    // e.g. ["Overview", "Why It Matters", ...]
+}
+```
+
+### validate-mdx
+
+Validates MDX content for structural correctness (frontmatter, heading hierarchy, JSX balance).
+
+**Input**:
+```typescript
+{
+  mdx: string;  // The MDX content to validate
+}
+```
+
+**Output**:
+```typescript
+{
+  valid: boolean;
+  errors: Array<{
+    type: string;      // "frontmatter" | "heading" | "jsx"
+    message: string;
+    line?: number;
+  }>;
+}
+```
+
+### run-pipeline
+
+Triggers a pipeline run and returns summary results.
+
+**Input**:
+```typescript
+{
+  repoSlug: string;                   // Required
+  triggerType: TriggerType;           // Default: "manual"
+  dryRun?: boolean;                   // Default: false
+}
+```
+
+**Output**:
+```typescript
+{
+  pipelineId: string;
+  status: string;
+  phasesCompleted: number;
+  totalPhases: number;
+  errors: string[];
+}
+```
+
+## Page Types
+
+The 10 page types used across the pipeline (defined in `mdx-writer.ts`, used by IA and Writer agents):
+
+| Type | Section | Word Target | Section Template |
+|---|---|---|---|
+| `landing_overview` | index | 600 | Overview, What Lives Here, How It Works, Next Steps |
+| `quickstart_tutorial` | getting-started | 800 | Overview, Prerequisites, Steps, Verification, Next Steps |
+| `concept_explainer` | concepts | 1,200 | Overview, Why It Matters, Practical Reading, Example, Next Steps |
+| `integration_guide` | integrations | 1,000 | Overview, Prerequisites, Configuration, Verification, Troubleshooting, Next Steps |
+| `connector_guide` | integrations | 1,000 | Overview, Prerequisites, Setup, Configuration, Testing, Next Steps |
+| `api_reference` | api-reference | 1,500 | Overview, Authentication, Endpoints, Examples, Error Codes |
+| `cookbook_recipe` | cookbook | 800 | Overview, Prerequisites, Recipe Steps, Result, Variations, Next Steps |
+| `reference_spec` | reference | 1,200 | Role, Participants, Protocol Details, Failure Modes, Example, Related Pages |
+| `migration_guide` | migration | 800 | Overview, Breaking Changes, Migration Steps, Rollback, Verification |
+| `feature_guide` | guides | 1,000 | Overview, Key Features, Usage, Configuration, Best Practices, Next Steps |
+
+## Exports
+
+The `apps/agent/src/lib/pipeline/index.ts` barrel export provides everything needed to use the pipeline:
+
+```typescript
+// Core types
+export type {
+  PipelineAgent, AgentContext, AgentResult, AgentMetrics,
+  PipelineState, PhaseState, PipelineConfig, PhaseName,
+  PhaseStatus, TriggerType, ToolAvailability,
+  AuditArtifacts, IAArtifacts, IAPage, WriterArtifacts,
+  VerifierArtifacts, QAArtifacts, MonitorArtifacts, PublishArtifacts,
+  CodeGraphData, CodeGraphSymbol, CgcData, NotebookData,
+} from "./types";
+
+export { PHASE_NAMES, PHASE_ORDER } from "./types";
+
+// Orchestrator
+export { PipelineOrchestrator, InMemoryStateStore } from "./orchestrator";
+export type { PipelineStateStore } from "./orchestrator";
+
+// Agents
+export { AuditAgent } from "./agents/audit-agent";
+export { IAAgent } from "./agents/ia-agent";
+export { WriterAgent } from "./agents/writer-agent";
+export { VerifierAgent } from "./agents/verifier-agent";
+export { QAAgent } from "./agents/qa-agent";
+export { MonitorAgent } from "./agents/monitor-agent";
+export { PublishAgent } from "./agents/publish-agent";
+
+// MCP Clients
+export { CodeGraphClient } from "./mcp-clients/codegraph-client";
+export { CgcClient } from "./mcp-clients/cgc-client";
+export { NotebookLmClient } from "./mcp-clients/notebooklm-client";
+```
+
+## Next Steps
+
+<Cards>
+  <Card title="The 7 Agents" href="/docs/panopticon-2.0/agents">
+    Implementation details for each agent, including how they consume these types.
+  </Card>
+  <Card title="State Persistence" href="/docs/panopticon-2.0/state-persistence">
+    How PipelineState flows through the system and enables resume-on-failure.
+  </Card>
+  <Card title="MCP Integration" href="/docs/panopticon-2.0/mcp-integration">
+    CodeGraph, CGC, and NotebookLM client APIs with circuit breaker details.
+  </Card>
+</Cards>
